@@ -1,0 +1,18 @@
+Package: taskr
+Title: TaskR Utilities for Psychology Research Workflows
+Version: 0.0.1
+Authors@R: 
+    person(given = "Research",
+           family = "Team",
+           role = c("aut", "cre"),
+           email = "research@example.org")
+Description: A lightweight package template for psychology-focused analysis
+    and experiment support code. The initial structure is intentionally simple
+    so non-CS researchers can read, teach from, and extend it.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Suggests: 
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
