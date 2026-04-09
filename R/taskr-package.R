@@ -1,8 +1,11 @@
-#' taskr: Psychology Research Utility Package
+#' taskr: Background Tasks and Scheduling for R
 #'
-#' This file defines package-level documentation for `taskr`.
-#' The package is organized to be readable for psychology researchers,
-#' with straightforward functions and tests.
+#' Run long R tasks in background processes and manage them through a simple
+#' in-memory queue. The package supports explicit task submission, progress
+#' reporting, and lightweight scheduling without relying on any specific IDE.
 #'
+#' @importFrom jsonlite toJSON
+#' @importFrom R6 R6Class
+#' @importFrom stats setNames
 #' @keywords internal
 "_PACKAGE"

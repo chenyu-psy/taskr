@@ -1,6 +1,6 @@
 # taskr
 
-`taskr` is an R package scaffold designed for psychology researchers.
+`taskr` is an R package scaffold for background tasks and simple queueing.
 
 ## Install
 
@@ -9,8 +9,7 @@
 # install.packages(".", repos = NULL, type = "source")
 ```
 
-## Example
+## Status
 
-```r
-taskr::hello_taskr("researcher")
-```
+The package is under active development. The current codebase contains the
+internal task engine used to launch and track background work.

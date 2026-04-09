@@ -1,18 +1,23 @@
 Package: taskr
-Title: TaskR Utilities for Psychology Research Workflows
+Title: Background Tasks and Scheduling for R
 Version: 0.0.1
 Authors@R: 
     person(given = "Research",
            family = "Team",
            role = c("aut", "cre"),
            email = "research@example.org")
-Description: A lightweight package template for psychology-focused analysis
-    and experiment support code. The initial structure is intentionally simple
-    so non-CS researchers can read, teach from, and extend it.
+Description: Run long R tasks in background processes and manage them through
+    a simple in-memory queue. The package supports explicit task submission,
+    progress reporting, and lightweight scheduling without relying on any
+    specific IDE or application domain.
 License: MIT + file LICENSE
 Encoding: UTF-8
+Imports:
+    jsonlite,
+    R6
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
 Suggests: 
+    callr (>= 3.7.0),
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
