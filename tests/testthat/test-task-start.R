@@ -88,26 +88,6 @@ wait_for_file <- function(path, timeout = 5) {
   file.exists(path)
 }
 
-wait_for_process_exit <- function(task, timeout = 5) {
-  deadline <- Sys.time() + timeout
-
-  while (task$is_alive() && Sys.time() < deadline) {
-    Sys.sleep(0.05)
-  }
-
-  !task$is_alive()
-}
-
-wait_for_task_status <- function(task, status, timeout = 5) {
-  deadline <- Sys.time() + timeout
-
-  while (!identical(task$status(), status) && Sys.time() < deadline) {
-    Sys.sleep(0.05)
-  }
-
-  identical(task$status(), status)
-}
-
 test_that("start_task_process launches a background task when callr is installed", {
   skip_if_not_installed("callr")
 

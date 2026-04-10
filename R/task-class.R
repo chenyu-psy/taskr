@@ -1,11 +1,11 @@
-#' Internal Task Class for Background Process State
-#'
-#' This file defines the internal `Task` R6 class used by `taskr` to track one
-#' background task. At this stage the class only stores task metadata and a
-#' process-like object. Later steps will connect it to real `callr` sessions.
-#'
-#' The class is intentionally not exported. Users should interact with tasks
-#' through package functions such as `submit_task()` and `list_tasks()`.
+# Internal Task Class for Background Process State
+#
+# This file defines the internal `Task` R6 class used by `taskr` to track one
+# background task. At this stage the class only stores task metadata and a
+# process-like object. Later steps will connect it to real `callr` sessions.
+#
+# The class is intentionally not exported. Users should interact with tasks
+# through package functions such as `submit_task()` and `list_tasks()`.
 Task <- R6::R6Class(
   classname = "Task",
   public = list(
@@ -23,23 +23,23 @@ Task <- R6::R6Class(
     call_result = NULL,
 
     initialize = function(id, process = NULL, status = "queued", result_path = NULL) {
-      #' Create a new internal task object.
-      #'
-      #' Purpose:
-      #' - Store basic task metadata in one mutable object.
-      #'
-      #' Parameters:
-      #' - `id`: Task identifier used by the package registry.
-      #' - `process`: Optional process-like object with `is_alive()` and
-      #'   `kill()` methods.
-      #' - `status`: Initial task status string.
-      #'
-      #' Returns:
-      #' - The modified task object.
-      #'
-      #' Assumptions and side effects:
-      #' - Assumes `id` is a single non-missing character string.
-      #' - Records the creation time immediately.
+# Create a new internal task object.
+#
+# Purpose:
+# - Store basic task metadata in one mutable object.
+#
+# Parameters:
+# - `id`: Task identifier used by the package registry.
+# - `process`: Optional process-like object with `is_alive()` and
+#   `kill()` methods.
+# - `status`: Initial task status string.
+#
+# Returns:
+# - The modified task object.
+#
+# Assumptions and side effects:
+# - Assumes `id` is a single non-missing character string.
+# - Records the creation time immediately.
       if (!is.character(id) || length(id) != 1 || is.na(id) || !nzchar(id)) {
         stop("`id` must be a single non-empty character string.")
       }
@@ -75,20 +75,20 @@ Task <- R6::R6Class(
     },
 
     set_status = function(status) {
-      #' Update the stored task status.
-      #'
-      #' Purpose:
-      #' - Keep status bookkeeping in one place for internal code.
-      #'
-      #' Parameters:
-      #' - `status`: New task status string.
-      #'
-      #' Returns:
-      #' - Invisibly returns the task object.
-      #'
-      #' Assumptions and side effects:
-      #' - Updates `started_at` when a task first enters `running`.
-      #' - Updates `finished_at` when a task enters a terminal state.
+# Update the stored task status.
+#
+# Purpose:
+# - Keep status bookkeeping in one place for internal code.
+#
+# Parameters:
+# - `status`: New task status string.
+#
+# Returns:
+# - Invisibly returns the task object.
+#
+# Assumptions and side effects:
+# - Updates `started_at` when a task first enters `running`.
+# - Updates `finished_at` when a task enters a terminal state.
       allowed_status <- c("queued", "running", "done", "failed", "killed")
       if (!is.character(status) || length(status) != 1 || is.na(status)) {
         stop("`status` must be a single non-missing character string.")
@@ -111,14 +111,14 @@ Task <- R6::R6Class(
     },
 
     status = function() {
-      #' Return the current task status.
-      #'
-      #' Purpose:
-      #' - Provide a simple accessor so upper layers do not read fields
-      #'   directly.
-      #'
-      #' Returns:
-      #' - `character(1)`: Current task status.
+# Return the current task status.
+#
+# Purpose:
+# - Provide a simple accessor so upper layers do not read fields
+#   directly.
+#
+# Returns:
+# - `character(1)`: Current task status.
       if (identical(self$status_value, "killed")) {
         return(self$status_value)
       }
@@ -189,29 +189,29 @@ Task <- R6::R6Class(
     },
 
     progress = function() {
-      #' Return the latest parsed progress update.
-      #'
-      #' Purpose:
-      #' - Give upper layers access to the most recent progress event emitted by
-      #'   the child process.
-      #'
-      #' Returns:
-      #' - `NULL` when no progress has been reported yet, otherwise a list with
-      #'   `fraction`, `message`, and `updated_at`.
+# Return the latest parsed progress update.
+#
+# Purpose:
+# - Give upper layers access to the most recent progress event emitted by
+#   the child process.
+#
+# Returns:
+# - `NULL` when no progress has been reported yet, otherwise a list with
+#   `fraction`, `message`, and `updated_at`.
       self$progress_state
     },
 
     is_alive = function() {
-      #' Report whether the underlying process is still alive.
-      #'
-      #' Purpose:
-      #' - Ask the process handle for liveness when available.
-      #'
-      #' Returns:
-      #' - `logical(1)`: `TRUE` when the process reports it is alive.
-      #'
-      #' Assumptions and side effects:
-      #' - If no process handle exists yet, returns `FALSE`.
+# Report whether the underlying process is still alive.
+#
+# Purpose:
+# - Ask the process handle for liveness when available.
+#
+# Returns:
+# - `logical(1)`: `TRUE` when the process reports it is alive.
+#
+# Assumptions and side effects:
+# - If no process handle exists yet, returns `FALSE`.
       if (is.null(self$process)) {
         return(FALSE)
       }
@@ -220,19 +220,19 @@ Task <- R6::R6Class(
     },
 
     read_output = function() {
-      #' Read incremental standard output and parse progress events.
-      #'
-      #' Purpose:
-      #' - Pull newly available stdout from the child process, remove taskr
-      #'   progress protocol messages, and keep ordinary output for later
-      #'   display.
-      #'
-      #' Returns:
-      #' - `character(1)`: Newly read non-protocol stdout text.
-      #'
-      #' Assumptions and side effects:
-      #' - Updates `stdout_buffer` with ordinary stdout text.
-      #' - Updates `progress_state` when progress protocol messages are found.
+# Read incremental standard output and parse progress events.
+#
+# Purpose:
+# - Pull newly available stdout from the child process, remove taskr
+#   progress protocol messages, and keep ordinary output for later
+#   display.
+#
+# Returns:
+# - `character(1)`: Newly read non-protocol stdout text.
+#
+# Assumptions and side effects:
+# - Updates `stdout_buffer` with ordinary stdout text.
+# - Updates `progress_state` when progress protocol messages are found.
       chunk <- task_read_stream(self$process, stream = "output")
       parsed <- parse_task_output(chunk)
 
@@ -250,31 +250,31 @@ Task <- R6::R6Class(
     },
 
     read_error = function() {
-      #' Read incremental standard error output.
-      #'
-      #' Purpose:
-      #' - Pull newly available stderr from the child process and append it to
-      #'   the internal stderr buffer.
-      #'
-      #' Returns:
-      #' - `character(1)`: Newly read stderr text.
+# Read incremental standard error output.
+#
+# Purpose:
+# - Pull newly available stderr from the child process and append it to
+#   the internal stderr buffer.
+#
+# Returns:
+# - `character(1)`: Newly read stderr text.
       chunk <- task_read_stream(self$process, stream = "error")
       self$stderr_buffer <- paste0(self$stderr_buffer, chunk)
       chunk
     },
 
     kill = function() {
-      #' Stop the underlying process and mark the task as killed.
-      #'
-      #' Purpose:
-      #' - Provide one place where queue code can terminate a running task.
-      #'
-      #' Returns:
-      #' - Invisibly returns the task object.
-      #'
-      #' Assumptions and side effects:
-      #' - Calls `$kill()` on the process handle when present.
-      #' - Updates status bookkeeping on the task object.
+# Stop the underlying process and mark the task as killed.
+#
+# Purpose:
+# - Provide one place where queue code can terminate a running task.
+#
+# Returns:
+# - Invisibly returns the task object.
+#
+# Assumptions and side effects:
+# - Calls `$kill()` on the process handle when present.
+# - Updates status bookkeeping on the task object.
       if (!is.null(self$process) && self$is_alive()) {
         self$process$kill()
       }
@@ -284,13 +284,13 @@ Task <- R6::R6Class(
     },
 
     elapsed = function() {
-      #' Return elapsed task time in seconds.
-      #'
-      #' Purpose:
-      #' - Give upper layers a simple elapsed time measure for display.
-      #'
-      #' Returns:
-      #' - `numeric(1)`: Seconds from creation until now or finish time.
+# Return elapsed task time in seconds.
+#
+# Purpose:
+# - Give upper layers a simple elapsed time measure for display.
+#
+# Returns:
+# - `numeric(1)`: Seconds from creation until now or finish time.
       end_time <- self$finished_at
       if (is.null(end_time)) {
         end_time <- Sys.time()
@@ -301,14 +301,14 @@ Task <- R6::R6Class(
   ),
   private = list(
     finalize = function() {
-      #' Finalize a task object during garbage collection.
-      #'
-      #' Purpose:
-      #' - Kill any still-running child process if the task object is collected
-      #'   before explicit cleanup happens.
-      #'
-      #' Returns:
-      #' - No return value.
+# Finalize a task object during garbage collection.
+#
+# Purpose:
+# - Kill any still-running child process if the task object is collected
+#   before explicit cleanup happens.
+#
+# Returns:
+# - No return value.
       try(self$kill(), silent = TRUE)
     }
   )
