@@ -84,3 +84,25 @@ test_that(".onUnload kills tracked tasks and removes the temp directory", {
   taskr:::.onLoad("", "taskr")
   expect_true(dir.exists(taskr:::pkg_env$tempdir))
 })
+
+test_that(".onUnload stops scheduler handle and clears scheduler state", {
+  on_load <- getFromNamespace(".onLoad", "taskr")
+  on_unload <- getFromNamespace(".onUnload", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+
+  on_load("", "taskr")
+  on.exit(on_load("", "taskr"), add = TRUE)
+
+  canceled <- FALSE
+  pkg_env$scheduler <- list(
+    scheduler_handle = function() {
+      canceled <<- TRUE
+      invisible(NULL)
+    }
+  )
+
+  on_unload("")
+
+  expect_true(canceled)
+  expect_null(pkg_env$scheduler)
+})

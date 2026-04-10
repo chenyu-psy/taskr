@@ -115,6 +115,7 @@ build_task_expr <- function(
 #' - `workdir`: Optional working directory for the child process.
 #' - `env`: Optional named list of environment variables to set in the child
 #'   process.
+#' - `save_result`: Whether task output should be written to result storage.
 #'
 #' Returns:
 #' - A `Task` object in `running` state.
@@ -132,7 +133,8 @@ start_task_process <- function(
     import = NULL,
     packages = NULL,
     workdir = NULL,
-    env = NULL) {
+    env = NULL,
+    save_result = TRUE) {
   if (!requireNamespace("callr", quietly = TRUE)) {
     stop(
       "The `callr` package is required to start background tasks. ",
@@ -140,8 +142,14 @@ start_task_process <- function(
     )
   }
 
-  if (is.null(result_path)) {
+  if (!is.logical(save_result) || length(save_result) != 1 || is.na(save_result)) {
+    stop("`save_result` must be a single non-missing logical value.")
+  }
+
+  if (isTRUE(save_result) && is.null(result_path)) {
     result_path <- task_tmpfile(id)
+  } else if (!isTRUE(save_result)) {
+    result_path <- NULL
   }
 
   imports <- resolve_task_imports(import = import)

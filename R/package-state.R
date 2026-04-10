@@ -26,6 +26,7 @@ pkg_env <- new.env(parent = emptyenv())
 .onLoad <- function(libname, pkgname) {
   pkg_env$tempdir <- file.path(tempdir(), "taskr")
   pkg_env$active_tasks <- new.env(parent = emptyenv())
+  pkg_env$scheduler <- NULL
   dir.create(pkg_env$tempdir, showWarnings = FALSE, recursive = TRUE)
 }
 
@@ -47,6 +48,11 @@ pkg_env <- new.env(parent = emptyenv())
 #'
 #' @keywords internal
 .onUnload <- function(libpath) {
+  if (!is.null(pkg_env$scheduler)) {
+    stop_scheduler_internal()
+    pkg_env$scheduler <- NULL
+  }
+
   cleanup_active_tasks()
 
   if (!is.null(pkg_env$tempdir) && dir.exists(pkg_env$tempdir)) {

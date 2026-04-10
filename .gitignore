@@ -42,6 +42,7 @@ vignettes/*.pdf
 
 # Local dev config
 .Rprofile
+.claude/
 Plan.md
 
 # pkgdown site

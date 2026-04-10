@@ -11,7 +11,8 @@ start_task_process(
   import = NULL,
   packages = NULL,
   workdir = NULL,
-  env = NULL
+  env = NULL,
+  save_result = TRUE
 )
 }
 \description{
@@ -35,6 +36,7 @@ child process.
 \item \code{workdir}: Optional working directory for the child process.
 \item \code{env}: Optional named list of environment variables to set in the child
 process.
+\item \code{save_result}: Whether task output should be written to result storage.
 }
 
 Returns:

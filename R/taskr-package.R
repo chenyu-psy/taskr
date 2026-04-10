@@ -5,6 +5,7 @@
 #' reporting, and lightweight scheduling without relying on any specific IDE.
 #'
 #' @importFrom jsonlite toJSON
+#' @importFrom later later
 #' @importFrom R6 R6Class
 #' @importFrom stats setNames
 #' @keywords internal

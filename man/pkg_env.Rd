@@ -5,7 +5,7 @@
 \alias{pkg_env}
 \title{Internal Package State for Temporary Task Storage}
 \format{
-An object of class \code{environment} of length 2.
+An object of class \code{environment} of length 3.
 }
 \usage{
 pkg_env

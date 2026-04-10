@@ -1,0 +1,131 @@
+# Queue Tick Core (Internal)
+#
+# Purpose:
+# - Advance queue state by one scheduler step:
+#   1) recycle running tasks
+#   2) sort queued tasks by priority and submit order
+#   3) start launchable tasks within slot capacity
+#
+# Notes:
+# - This file is queue-layer logic only.
+# - It must not call `callr::*` directly. It only talks to task objects through
+#   the contract defined in `R/contract.R`.
+
+`%||%` <- function(x, y) {
+  if (is.null(x)) y else x
+}
+
+task_slots <- function(task_item) {
+  as.integer(task_item$resources$slots %||% 1L)
+}
+
+running_slots_used <- function(running) {
+  if (length(running) == 0) {
+    return(0L)
+  }
+
+  sum(vapply(running, task_slots, integer(1)))
+}
+
+sort_queue_by_priority <- function(queue) {
+  if (length(queue) <= 1) {
+    return(queue)
+  }
+
+  priority <- vapply(queue, function(x) as.integer(x$priority %||% 0L), integer(1))
+  submit_time <- vapply(
+    queue,
+    function(x) as.numeric(x$submit_time %||% 0),
+    numeric(1)
+  )
+  order_idx <- order(-priority, submit_time)
+  queue[order_idx]
+}
+
+recycle_running_tasks <- function(state, now) {
+  if (length(state$running) == 0) {
+    return(state)
+  }
+
+  ids <- names(state$running)
+  keep_running <- list()
+
+  for (id in ids) {
+    item <- state$running[[id]]
+    task <- item$task
+
+    if (is.null(task)) {
+      keep_running[[id]] <- item
+      next
+    }
+
+    stdout_chunk <- tryCatch(task$read_output(), error = function(e) "")
+    stderr_chunk <- tryCatch(task$read_error(), error = function(e) "")
+    prog <- tryCatch(task$progress(), error = function(e) NULL)
+    status <- tryCatch(task$status(), error = function(e) "failed")
+
+    item$stdout_buffer <- paste0(item$stdout_buffer %||% "", stdout_chunk)
+    item$stderr_buffer <- paste0(item$stderr_buffer %||% "", stderr_chunk)
+
+    if (!is.null(prog)) {
+      item$progress <- prog$fraction %||% item$progress
+      item$message <- prog$message %||% item$message
+    }
+
+    if (identical(status, "running")) {
+      keep_running[[id]] <- item
+      next
+    }
+
+    item$status <- status
+    item$end_time <- now
+    if (!is.null(task$error)) {
+      item$error <- task$error
+    }
+    state$done[[id]] <- item
+  }
+
+  state$running <- keep_running
+  state
+}
+
+launch_from_queue <- function(state, now, start_task_fn = NULL) {
+  if (length(state$queue) == 0) {
+    return(state)
+  }
+
+  state$queue <- sort_queue_by_priority(state$queue)
+  capacity_slots <- as.integer(state$capacity$slots %||% 1L)
+  available_slots <- capacity_slots - running_slots_used(state$running)
+  remaining_queue <- list()
+
+  for (item in state$queue) {
+    item_slots <- task_slots(item)
+
+    if (item_slots <= available_slots) {
+      launcher <- start_task_fn %||% item$start_task
+      if (is.null(launcher) || !is.function(launcher)) {
+        stop("Queued task must provide `start_task` or `tick()` must receive `start_task_fn`.")
+      }
+
+      task_obj <- launcher(item)
+      item$task <- task_obj
+      item$status <- "running"
+      item$start_time <- now
+      state$running[[item$id]] <- item
+      available_slots <- available_slots - item_slots
+    } else {
+      remaining_queue[[length(remaining_queue) + 1L]] <- item
+    }
+  }
+
+  state$queue <- remaining_queue
+  state
+}
+
+tick <- function(state, start_task_fn = NULL, now = Sys.time()) {
+  state <- recycle_running_tasks(state, now = now)
+  state <- launch_from_queue(state, now = now, start_task_fn = start_task_fn)
+  state$scheduler_should_stop <- length(state$running) == 0 && length(state$queue) == 0
+  state
+}
