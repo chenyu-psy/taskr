@@ -58,16 +58,52 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
   }
 
   needed <- names(empty_dashboard_table())
+  n <- nrow(tab)
   for (nm in setdiff(needed, names(tab))) {
-    tab[[nm]] <- empty_dashboard_table()[[nm]]
+    template <- empty_dashboard_table()[[nm]]
+    if (inherits(template, "POSIXct")) {
+      tab[[nm]] <- rep(as.POSIXct(NA), n)
+    } else if (is.integer(template)) {
+      tab[[nm]] <- rep(NA_integer_, n)
+    } else if (is.numeric(template)) {
+      tab[[nm]] <- rep(NA_real_, n)
+    } else {
+      tab[[nm]] <- rep(NA_character_, n)
+    }
   }
   tab <- tab[, needed, drop = FALSE]
 
-  if (nrow(tab) > 0) {
-    tab$submit_time <- as.POSIXct(tab$submit_time, origin = "1970-01-01")
-    tab$start_time <- as.POSIXct(tab$start_time, origin = "1970-01-01")
-    tab$end_time <- as.POSIXct(tab$end_time, origin = "1970-01-01")
+  as_posix_snapshot <- function(x, n) {
+    if (is.list(x)) {
+      x <- vapply(
+        x,
+        function(el) {
+          if (is.null(el) || length(el) == 0 || all(is.na(el))) {
+            return(NA_character_)
+          }
+          as.character(el[[1]])
+        },
+        character(1)
+      )
+    }
+
+    if (inherits(x, "POSIXct")) {
+      return(as.POSIXct(x))
+    }
+    if (is.numeric(x)) {
+      return(as.POSIXct(x, origin = "1970-01-01", tz = "UTC"))
+    }
+
+    out <- suppressWarnings(as.POSIXct(as.character(x), tz = "UTC"))
+    if (length(out) == 0) {
+      out <- rep(as.POSIXct(NA), n)
+    }
+    out
   }
+
+  tab$submit_time <- as_posix_snapshot(tab$submit_time, n = n)
+  tab$start_time <- as_posix_snapshot(tab$start_time, n = n)
+  tab$end_time <- as_posix_snapshot(tab$end_time, n = n)
 
   list(
     generated_at = payload$generated_at %||% NA_character_,

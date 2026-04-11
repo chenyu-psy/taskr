@@ -422,23 +422,33 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       done_filter_status <- shiny::reactiveVal("done")
       click_counts <- new.env(parent = emptyenv())
       click_counts$values <- list()
+      read_snapshot_tasks <- function() {
+        out <- tryCatch(read_dashboard_snapshot(path = snapshot_path), error = function(e) NULL)
+        if (is.null(out)) {
+          return(list(tasks = empty_dashboard_table(), max_concurrent = 1L))
+        }
+        list(
+          tasks = out$tasks %||% empty_dashboard_table(),
+          max_concurrent = as.integer(out$max_concurrent %||% 1L)
+        )
+      }
 
       state_tasks <- shiny::reactivePoll(
         intervalMillis = 1000,
         session = session,
         checkFunc = function() {
           tab <- if (isTRUE(read_only)) {
-            read_dashboard_snapshot(path = snapshot_path)$tasks
+            read_snapshot_tasks()$tasks
           } else {
-            extract_dashboard_snapshot(now = Sys.time())
+            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
           }
           paste0(dashboard_state_signature(tab), "-", refresh_nonce())
         },
         valueFunc = function() {
           tab <- if (isTRUE(read_only)) {
-            read_dashboard_snapshot(path = snapshot_path)$tasks
+            read_snapshot_tasks()$tasks
           } else {
-            extract_dashboard_snapshot(now = Sys.time())
+            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
           }
           add_dashboard_derived_columns(tab, now = Sys.time())
         }
@@ -449,9 +459,9 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         session = session,
         checkFunc = function() {
           tab <- if (isTRUE(read_only)) {
-            read_dashboard_snapshot(path = snapshot_path)$tasks
+            read_snapshot_tasks()$tasks
           } else {
-            extract_dashboard_snapshot(now = Sys.time())
+            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
           }
           expanded_id <- selected_id()
           running_now <- tab[tab$status == "running", , drop = FALSE]
@@ -484,9 +494,9 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         },
         valueFunc = function() {
           tab <- if (isTRUE(read_only)) {
-            read_dashboard_snapshot(path = snapshot_path)$tasks
+            read_snapshot_tasks()$tasks
           } else {
-            extract_dashboard_snapshot(now = Sys.time())
+            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
           }
           add_dashboard_derived_columns(tab, now = Sys.time())
         }
@@ -508,7 +518,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 
       output$summary_progress <- shiny::renderUI({
         slots <- if (isTRUE(read_only)) {
-          read_dashboard_snapshot(path = snapshot_path)$max_concurrent %||% 1L
+          read_snapshot_tasks()$max_concurrent %||% 1L
         } else {
           pkg_env$scheduler$capacity$slots %||% 1L
         }
