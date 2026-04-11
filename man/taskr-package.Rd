@@ -11,7 +11,7 @@ in-memory queue. The package supports explicit task submission, progress
 reporting, and lightweight scheduling without relying on any specific IDE.
 }
 \author{
-\strong{Maintainer}: Research Team \email{research@example.org}
+\strong{Maintainer}: Chenyu Li \email{chenyu.li.hz@gmail.com}
 
 }
 \keyword{internal}

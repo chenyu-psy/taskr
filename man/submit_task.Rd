@@ -39,7 +39,8 @@ Purpose:
 }
 \examples{
 init_queue(max_concurrent = 1)
-if (requireNamespace("callr", quietly = TRUE)) {
+if (interactive() && requireNamespace("callr", quietly = TRUE)) {
+  on.exit(shutdown_queue(), add = TRUE)
   submit_task({ 1 + 1 }, label = "toy_expr")
 }
 }

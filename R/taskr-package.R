@@ -8,5 +8,7 @@
 #' @importFrom later later
 #' @importFrom R6 R6Class
 #' @importFrom stats setNames
+#' @importFrom utils getFromNamespace
+#' @importFrom utils tail
 #' @keywords internal
 "_PACKAGE"

@@ -88,6 +88,24 @@ wait_for_file <- function(path, timeout = 5) {
   file.exists(path)
 }
 
+close_task_process <- function(task) {
+  proc <- task$process %||% NULL
+  if (is.null(proc)) {
+    return(invisible(NULL))
+  }
+
+  if (is.function(proc$close)) {
+    proc$close()
+    return(invisible(NULL))
+  }
+
+  if (is.function(proc$kill) && isTRUE(proc$is_alive())) {
+    proc$kill()
+  }
+
+  invisible(NULL)
+}
+
 test_that("start_task_process launches a background task when callr is installed", {
   skip_if_not_installed("callr")
 
@@ -103,7 +121,7 @@ test_that("start_task_process launches a background task when callr is installed
   expect_true(wait_for_file(result_path))
   expect_equal(readRDS(result_path), 7L)
 
-  task$process$close()
+  close_task_process(task)
   unlink(result_path)
 })
 
@@ -142,7 +160,7 @@ test_that("start_task_process supports import, packages, workdir, and env", {
   expect_identical(result$env_value, "child-value")
   expect_true(result$stats_loaded)
 
-  task$process$close()
+  close_task_process(task)
   unlink(result_path)
 })
 
@@ -160,7 +178,7 @@ test_that("start_task_process uses task_tmpfile when result_path is omitted", {
   expect_true(wait_for_file(result_path))
   expect_equal(readRDS(result_path), "saved in default path")
 
-  task$process$close()
+  close_task_process(task)
   unlink(result_path)
 })
 
@@ -177,7 +195,7 @@ test_that("start_task_process leaves no result file when the child errors", {
   Sys.sleep(0.5)
   expect_false(file.exists(result_path))
 
-  task$process$close()
+  close_task_process(task)
 })
 
 test_that("Task kill stops a running child process before it writes a result", {
@@ -197,5 +215,5 @@ test_that("Task kill stops a running child process before it writes a result", {
   expect_equal(task$status(), "killed")
   expect_false(file.exists(result_path))
 
-  task$process$close()
+  close_task_process(task)
 })

@@ -278,6 +278,9 @@ Task <- R6::R6Class(
       if (!is.null(self$process) && self$is_alive()) {
         self$process$kill()
       }
+      if (!is.null(self$process) && is.function(self$process$close)) {
+        try(self$process$close(), silent = TRUE)
+      }
 
       self$set_status("killed")
       unregister_active_task(self$id)
