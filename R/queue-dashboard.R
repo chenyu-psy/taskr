@@ -376,10 +376,17 @@ queue_dashboard_ui <- function() {
                 width = 8,
                 shiny::h3("Task Monitor")
               ),
-                shiny::column(
-                  width = 4,
-                  shiny::textInput("task_query", "Search", value = "", placeholder = "label or task id")
+              shiny::column(
+                width = 4,
+                shiny::div(
+                  style = "display:flex; gap:8px; align-items:flex-end;",
+                  shiny::div(
+                    style = "flex:1;",
+                    shiny::textInput("task_query", "Search", value = "", placeholder = "label or task id")
+                  ),
+                  shiny::uiOutput("summary_actions")
                 )
+              )
             ),
             shiny::uiOutput("summary_progress")
           )
@@ -541,6 +548,14 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
             label = sprintf("Completion: %d / %d terminal", summary$done + summary$failed + summary$killed, summary$total)
           )
         )
+      })
+
+      output$summary_actions <- shiny::renderUI({
+        if (isTRUE(read_only)) {
+          return(NULL)
+        }
+
+        shiny::actionButton("clear_all_tasks", "Clear All", class = "btn btn-danger btn-sm")
       })
 
       output$running_cards <- shiny::renderUI({
@@ -798,6 +813,50 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         invisible(NULL)
       }, ignoreInit = TRUE)
 
+      shiny::observeEvent(input$clear_all_tasks, {
+        if (isTRUE(read_only)) {
+          return(invisible(NULL))
+        }
+
+        shiny::showModal(shiny::modalDialog(
+          title = "Clear all tasks?",
+          "This will cancel all running and queued tasks, and remove finished task records.",
+          footer = shiny::tagList(
+            shiny::modalButton("Keep tasks"),
+            shiny::actionButton("confirm_clear_all_tasks", "Clear all", class = "btn btn-danger")
+          )
+        ))
+        invisible(NULL)
+      }, ignoreInit = TRUE)
+
+      shiny::observeEvent(input$confirm_clear_all_tasks, {
+        if (isTRUE(read_only)) {
+          return(invisible(NULL))
+        }
+
+        shiny::removeModal()
+        slots <- as.integer(pkg_env$scheduler$capacity$slots %||% 1L)
+        if (is.na(slots) || slots < 1L) {
+          slots <- 1L
+        }
+
+        tryCatch(
+          {
+            shutdown_queue()
+            init_queue(max_concurrent = slots)
+            display_progress_cache(list())
+            selected_id(NULL)
+            shiny::showNotification("All tasks cleared.", type = "message")
+          },
+          error = function(e) {
+            shiny::showNotification(conditionMessage(e), type = "error")
+          }
+        )
+
+        refresh_nonce(refresh_nonce() + 1L)
+        invisible(NULL)
+      }, ignoreInit = TRUE)
+
       shiny::observe({
         # Keep expanded id valid when data updates.
         current_id <- selected_id()
@@ -833,6 +892,9 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 #' - Provide lightweight control actions (`cancel_task`, `clean_tasks`) without
 #'   changing the existing queue API.
 #'
+#' @param mode Dashboard run mode. `"live"` runs in the current R session and
+#'   keeps task control buttons enabled. `"background"` launches a read-only
+#'   dashboard process backed by JSON snapshots.
 #' @param open_viewer Whether to open dashboard URL in IDE Viewer when
 #'   available.
 #' @return Invisibly returns the dashboard URL.
@@ -840,14 +902,24 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 #' \dontrun{
 #' init_queue(max_concurrent = 2)
 #' queue_dashboard()
+#' queue_dashboard(mode = "background")
 #' }
 #' @export
-queue_dashboard <- function(open_viewer = TRUE) {
+queue_dashboard <- function(mode = c("live", "background"), open_viewer = TRUE) {
   if (!requireNamespace("shiny", quietly = TRUE)) {
     stop("`queue_dashboard()` requires the `shiny` package. Install it with install.packages('shiny').")
   }
 
+  mode <- match.arg(mode)
   ensure_queue_initialized()
-  write_dashboard_snapshot()
-  invisible(launch_dashboard_background(open_viewer = open_viewer, announce = TRUE, focus_existing = TRUE))
+
+  if (identical(mode, "background")) {
+    write_dashboard_snapshot()
+    return(invisible(
+      launch_dashboard_background(open_viewer = open_viewer, announce = TRUE, focus_existing = TRUE)
+    ))
+  }
+
+  app <- queue_dashboard_app(data_mode = "live")
+  invisible(shiny::runApp(app, display.mode = "normal", launch.browser = isTRUE(open_viewer) && interactive()))
 }
