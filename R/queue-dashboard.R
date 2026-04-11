@@ -33,7 +33,7 @@ task_expand_block_ui <- function(task, expanded = FALSE) {
 
   shiny::div(
     class = "task-expand-block",
-    shiny::div(class = "task-expand-meta", paste("Status:", task$status)),
+    shiny::div(class = "task-expand-meta", paste("Status:", status_display_label(task$status))),
     shiny::div(class = "task-expand-meta", paste("Priority:", task$priority)),
     shiny::div(class = "task-expand-meta", paste("Submitted:", task$submit_time_label)),
     shiny::div(class = "task-expand-meta", paste("Started:", task$start_time_label)),
@@ -64,10 +64,11 @@ running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE, ch
 
   shiny::div(
     class = dashboard_card_class(task$status),
+    `data-task-id` = as.character(task$id),
     shiny::div(
       class = "task-card-head",
       shiny::div(class = "task-card-title", task$label),
-      shiny::span(class = paste("status-pill", status_badge_class(task$status)), task$status)
+      shiny::span(class = paste("status-pill", status_badge_class(task$status)), status_display_label(task$status))
     ),
     shiny::div(class = "task-card-meta", paste("ID:", task$id)),
     shiny::div(
@@ -135,10 +136,11 @@ queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
 
   shiny::div(
     class = dashboard_card_class(task$status),
+    `data-task-id` = as.character(task$id),
     shiny::div(
       class = "task-card-head",
       shiny::div(class = "task-card-title", task$label),
-      shiny::span(class = paste("status-pill", status_badge_class(task$status)), task$status)
+      shiny::span(class = paste("status-pill", status_badge_class(task$status)), status_display_label(task$status))
     ),
     shiny::div(class = "task-card-meta", paste("ID:", task$id)),
     shiny::div(class = "task-card-meta", paste("Priority:", task$priority)),
@@ -155,7 +157,7 @@ queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
   )
 }
 
-# Render one terminal-task card (done/failed/killed).
+# Render one terminal-task card (done/failed/cancelled).
 # Args:
 # - task: One-row data.frame for a terminal task.
 # Returns:
@@ -165,10 +167,11 @@ done_task_card_ui <- function(task, expanded = FALSE) {
 
   shiny::div(
     class = dashboard_card_class(task$status),
+    `data-task-id` = as.character(task$id),
     shiny::div(
       class = "task-card-head",
       shiny::div(class = "task-card-title", task$label),
-      shiny::span(class = paste("status-pill", status_badge_class(task$status)), task$status)
+      shiny::span(class = paste("status-pill", status_badge_class(task$status)), status_display_label(task$status))
     ),
     shiny::div(class = "task-card-meta", paste("ID:", task$id)),
     shiny::div(class = "task-card-meta", paste("Ended:", task$end_time_label)),
@@ -213,7 +216,7 @@ column_cards_ui <- function(tab, title, renderer, header_right = NULL, subheader
   )
 }
 
-done_filter_controls_ui <- function(done_n, failed_n, killed_n, selected = "done") {
+done_filter_controls_ui <- function(done_n, failed_n, cancelled_n, selected = "done") {
   btn_class <- function(key) {
     base <- "btn btn-sm done-filter-btn"
     if (identical(selected, key)) {
@@ -226,7 +229,7 @@ done_filter_controls_ui <- function(done_n, failed_n, killed_n, selected = "done
     class = "done-filter-row",
     shiny::actionButton("done_filter_done", sprintf("done (%d)", done_n), class = btn_class("done")),
     shiny::actionButton("done_filter_failed", sprintf("failed (%d)", failed_n), class = btn_class("failed")),
-    shiny::actionButton("done_filter_killed", sprintf("killed (%d)", killed_n), class = btn_class("killed"))
+    shiny::actionButton("done_filter_cancelled", sprintf("cancelled (%d)", cancelled_n), class = btn_class("cancelled"))
   )
 }
 
@@ -274,7 +277,7 @@ dashboard_css <- function() {
       ".status-queued { background: #f2f5f8; color: #475867; border-color: #cfd9e3; }",
       ".status-done { background: #edf6ff; color: #1f5f99; border-color: #b9d7f4; }",
       ".status-failed { background: #fdecec; color: #9e1c1c; border-color: #efb5b5; }",
-      ".status-killed { background: #fff3e5; color: #9a5a00; border-color: #f2d2a3; }",
+      ".status-cancelled { background: #fff3e5; color: #9a5a00; border-color: #f2d2a3; }",
       ".done-filter-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }",
       ".done-filter-btn { border: 1px solid #cfd8e2; background: #f7f9fc; color: #304558; }",
       ".done-filter-btn.active { background: #2d6cdf; color: #fff; border-color: #2d6cdf; }",
@@ -350,6 +353,34 @@ dashboard_scroll_js <- function() {
       "    setTimeout(function () { updateRunningElapsed(evt && evt.target ? evt.target : document); }, 0);",
       "  });",
       "  document.addEventListener('shiny:connected', function () { updateRunningElapsed(document); });",
+      "  if (window.Shiny && window.Shiny.addCustomMessageHandler) {",
+      "    window.Shiny.addCustomMessageHandler('taskr_focus_task', function (msg) {",
+      "      var taskId = msg && msg.task_id ? String(msg.task_id) : '';",
+      "      if (!taskId) return;",
+      "      var cards = document.querySelectorAll ? document.querySelectorAll('.task-card[data-task-id]') : [];",
+      "      var card = null;",
+      "      Array.prototype.forEach.call(cards, function (el) {",
+      "        if (card) return;",
+      "        if (String(el.getAttribute('data-task-id') || '') === taskId) card = el;",
+      "      });",
+      "      if (!card) return;",
+      "      var key = msg && msg.container_key ? String(msg.container_key) : '';",
+      "      var container = null;",
+      "      if (key && document.querySelector) {",
+      "        container = document.querySelector('[data-scroll-key=\"' + key + '\"]');",
+      "      }",
+      "      if (!container && card.closest) container = card.closest('.dashboard-column-body');",
+      "      if (!container) return;",
+      "      var top = card.offsetTop;",
+      "      var bottom = top + card.offsetHeight;",
+      "      var viewTop = container.scrollTop;",
+      "      var viewBottom = viewTop + container.clientHeight;",
+      "      var margin = 8;",
+      "      if (top < (viewTop + margin) || bottom > (viewBottom - margin)) {",
+      "        container.scrollTop = Math.max(0, top - 12);",
+      "      }",
+      "    });",
+      "  }",
       "})();",
       sep = "\n"
     )
@@ -369,28 +400,17 @@ queue_dashboard_ui <- function() {
         class = "dashboard-row",
         shiny::column(
           width = 12,
-          shiny::div(
-            class = "summary-card",
-            shiny::fluidRow(
-              shiny::column(
-                width = 8,
-                shiny::h3("Task Monitor")
+            shiny::div(
+              class = "summary-card",
+              shiny::div(
+                style = "display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;",
+                shiny::h3("Task Monitor", style = "margin:0;"),
+                shiny::uiOutput("summary_actions")
               ),
-              shiny::column(
-                width = 4,
-                shiny::div(
-                  style = "display:flex; gap:8px; align-items:flex-end;",
-                  shiny::div(
-                    style = "flex:1;",
-                    shiny::textInput("task_query", "Search", value = "", placeholder = "label or task id")
-                  ),
-                  shiny::uiOutput("summary_actions")
-                )
-              )
-            ),
-            shiny::uiOutput("summary_progress")
+              shiny::textInput("task_query", "Search", value = "", placeholder = "label or task id"),
+              shiny::uiOutput("summary_progress")
+            )
           )
-        )
       ),
       shiny::fluidRow(
         class = "dashboard-row",
@@ -554,7 +574,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           ),
           progress_bar_tag(
             ratio = summary$completion_ratio,
-            label = sprintf("Completion: %d / %d terminal", summary$done + summary$failed + summary$killed, summary$total)
+            label = sprintf("Completion: %d / %d terminal", summary$done + summary$failed + summary$cancelled, summary$total)
           )
         )
       })
@@ -664,7 +684,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         done_all <- state_split()$done
         done_n <- sum(done_all$status == "done")
         failed_n <- sum(done_all$status == "failed")
-        killed_n <- sum(done_all$status == "killed")
+        cancelled_n <- sum(done_all$status == "cancelled")
         selected_filter <- done_filter_status()
         done_filtered <- done_all[done_all$status == selected_filter, , drop = FALSE]
 
@@ -678,7 +698,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           subheader = done_filter_controls_ui(
             done_n = done_n,
             failed_n = failed_n,
-            killed_n = killed_n,
+            cancelled_n = cancelled_n,
             selected = selected_filter
           )
         )
@@ -692,8 +712,8 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         done_filter_status("failed")
       }, ignoreInit = TRUE)
 
-      shiny::observeEvent(input$done_filter_killed, {
-        done_filter_status("killed")
+      shiny::observeEvent(input$done_filter_cancelled, {
+        done_filter_status("cancelled")
       }, ignoreInit = TRUE)
 
       can_issue_action <- function(key, cooldown_sec = 5) {
@@ -938,13 +958,43 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           state_split()$queued$id,
           state_split()$done$id
         ))
-        if (length(visible_ids) == 0) {
-          selected_id(NULL)
-          return(invisible(NULL))
-        }
+        if (length(visible_ids) == 0) return(invisible(NULL))
         if (!current_id %in% visible_ids) {
           selected_id(NULL)
         }
+      })
+
+      shiny::observe({
+        current_id <- selected_id()
+        if (is.null(current_id)) {
+          return(invisible(NULL))
+        }
+
+        running_ids <- filtered_running_tasks()$id
+        queued_ids <- state_split()$queued$id
+        done_all <- state_split()$done
+        selected_filter <- done_filter_status()
+        done_filtered_ids <- done_all$id[done_all$status == selected_filter]
+
+        container_key <- NULL
+        if (current_id %in% running_ids) {
+          container_key <- "col-running"
+        } else if (current_id %in% queued_ids) {
+          container_key <- "col-queued"
+        } else if (current_id %in% done_filtered_ids) {
+          container_key <- "col-finished"
+        }
+
+        if (is.null(container_key)) {
+          return(invisible(NULL))
+        }
+
+        session$onFlushed(function() {
+          session$sendCustomMessage(
+            "taskr_focus_task",
+            list(task_id = current_id, container_key = container_key)
+          )
+        }, once = TRUE)
       })
 
       shiny::onSessionEnded(function() {

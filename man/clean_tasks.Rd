@@ -12,7 +12,7 @@ Invisibly returns \code{NULL}.
 \description{
 Purpose:
 \itemize{
-\item Remove done/failed/killed tasks from scheduler memory.
+\item Remove done/failed/cancelled tasks from scheduler memory.
 \item Delete their result files when present.
 }
 }

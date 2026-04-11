@@ -98,7 +98,7 @@ test_that("task_result warns and returns NULL when output is none", {
   )
 })
 
-test_that("task_result errors clearly for failed and killed tasks", {
+test_that("task_result errors clearly for failed and cancelled tasks", {
   task_result <- getFromNamespace("task_result", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
@@ -110,11 +110,11 @@ test_that("task_result errors clearly for failed and killed tasks", {
   pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
   pkg_env$scheduler$done <- list(
     task_020 = list(id = "task_020", label = "bad", status = "failed", error = "boom"),
-    task_021 = list(id = "task_021", label = "killed", status = "killed")
+    task_021 = list(id = "task_021", label = "cancelled", status = "cancelled")
   )
 
   expect_error(task_result("task_020"), "boom")
-  expect_error(task_result("task_021"), "killed")
+  expect_error(task_result("task_021"), "cancelled")
 })
 
 test_that("task_result waits for running task to finish", {

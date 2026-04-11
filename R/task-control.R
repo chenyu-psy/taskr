@@ -20,7 +20,7 @@ delete_task_result_file <- function(item) {
 #'
 #' Purpose:
 #' - Remove a queued task or kill a running task.
-#' - Mark canceled tasks as `killed` in terminal records.
+#' - Mark canceled tasks as `cancelled` in terminal records.
 #'
 #' @param id_or_label Task id or label used to identify one task.
 #' @return Invisibly returns `NULL`.
@@ -59,7 +59,7 @@ cancel_task <- function(id_or_label) {
     pkg_env$scheduler$running[[run_id]] <- NULL
   }
 
-  item$status <- "killed"
+  item$status <- "cancelled"
   item$end_time <- now
   item$error <- item$error %||% "Task canceled by user."
   pkg_env$scheduler$done[[item$id]] <- item
@@ -75,7 +75,7 @@ cancel_task <- function(id_or_label) {
 #' Clean Terminal Task Records and Temporary Files
 #'
 #' Purpose:
-#' - Remove done/failed/killed tasks from scheduler memory.
+#' - Remove done/failed/cancelled tasks from scheduler memory.
 #' - Delete their result files when present.
 #'
 #' @return Invisibly returns `NULL`.

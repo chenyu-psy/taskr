@@ -16,7 +16,7 @@ Invisibly returns \code{NULL}.
 Purpose:
 \itemize{
 \item Remove a queued task or kill a running task.
-\item Mark canceled tasks as \code{killed} in terminal records.
+\item Mark canceled tasks as \code{cancelled} in terminal records.
 }
 }
 \examples{

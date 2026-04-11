@@ -45,7 +45,7 @@ test_that("MockTask supports progress and terminal transitions", {
   expect_false(task$is_alive())
 
   task$kill()
-  expect_equal(task$status(), "killed")
+  expect_equal(task$status(), "cancelled")
   expect_false(task$is_alive())
   expect_type(task$elapsed(), "double")
 })

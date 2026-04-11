@@ -1,11 +1,11 @@
 make_kill_tracking_task <- function(id = "task_run") {
   state <- new.env(parent = emptyenv())
-  state$killed <- FALSE
+  state$cancelled <- FALSE
 
   list(
     id = id,
     kill = function() {
-      state$killed <- TRUE
+      state$cancelled <- TRUE
       invisible(NULL)
     },
     state = state
@@ -54,7 +54,7 @@ test_that("shutdown_queue clears scheduler state and temp files", {
 
   taskr::shutdown_queue()
 
-  expect_true(fake_task$state$killed)
+  expect_true(fake_task$state$cancelled)
   expect_null(pkg_env$scheduler)
   expect_false(file.exists(path))
   expect_length(ls(pkg_env$active_tasks, all.names = TRUE), 0)

@@ -19,8 +19,8 @@ make_scheduler_item <- function(
     progress = progress,
     message = message,
     submit_time = now - 10,
-    start_time = if (status %in% c("running", "done", "failed", "killed")) now - 5 else as.POSIXct(NA),
-    end_time = if (status %in% c("done", "failed", "killed")) now - 1 else as.POSIXct(NA),
+    start_time = if (status %in% c("running", "done", "failed", "cancelled")) now - 5 else as.POSIXct(NA),
+    end_time = if (status %in% c("done", "failed", "cancelled")) now - 1 else as.POSIXct(NA),
     result_path = tempfile(fileext = ".rds"),
     error = error
   )

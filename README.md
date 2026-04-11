@@ -137,7 +137,7 @@ Cancel a running or queued task, or clean up completed tasks:
 
 ```r
 cancel_task("brm_model")   # kill running or remove queued task
-clean_tasks()               # remove all done/failed/killed records
+clean_tasks()               # remove all done/failed/cancelled records
 ```
 
 ## Advanced Functions
@@ -181,7 +181,7 @@ Task Monitor layout:
 - **Running**: active tasks with elapsed time, cancel action, and progress bars
   (including per-chain bars for Stan/JAGS-style logs when detected)
 - **Queued**: waiting tasks sorted by priority then submit time
-- **Finished**: terminal tasks with filters (`done` / `failed` / `killed`) and
+- **Finished**: terminal tasks with filters (`done` / `failed` / `cancelled`) and
   `Clean Finished`
 - click a task card to expand details and tail logs
 
@@ -197,7 +197,7 @@ source(system.file("examples", "shiny-loop-demo.R", package = "taskr"))
   is empty.
 - `import = "auto"` (the default) automatically captures referenced variables
   and loaded packages from the calling environment.
-- Task status values: `"queued"`, `"running"`, `"done"`, `"failed"`, `"killed"`.
+- Task status values: `"queued"`, `"running"`, `"done"`, `"failed"`, `"cancelled"`.
 - Results are stored as `.rds` files in a temporary directory and are lost
   when the R session ends.
 - Dashboard snapshots are temporary session files used for background monitor

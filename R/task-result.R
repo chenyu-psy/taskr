@@ -60,8 +60,8 @@ task_result <- function(id_or_label) {
       stop(msg)
     }
 
-    if (identical(status, "killed")) {
-      stop("Task was killed before producing a result.")
+    if (identical(status, "cancelled")) {
+      stop("Task was cancelled before producing a result.")
     }
 
     stop("Task has unsupported status: ", status)

@@ -289,7 +289,7 @@ split_dashboard_tasks <- function(tab) {
 
   running <- tab[tab$status == "running", , drop = FALSE]
   queued <- tab[tab$status == "queued", , drop = FALSE]
-  done <- tab[tab$status %in% c("done", "failed", "killed"), , drop = FALSE]
+  done <- tab[tab$status %in% c("done", "failed", "cancelled"), , drop = FALSE]
 
   if (nrow(running) > 0) {
     running <- running[order(running$start_time, decreasing = TRUE), , drop = FALSE]
@@ -317,10 +317,10 @@ dashboard_summary_metrics <- function(tab, max_slots = 1L) {
   n_queued <- sum(tab$status == "queued")
   n_done <- sum(tab$status == "done")
   n_failed <- sum(tab$status == "failed")
-  n_killed <- sum(tab$status == "killed")
+  n_cancelled <- sum(tab$status == "cancelled")
   n_total <- nrow(tab)
 
-  terminal_count <- n_done + n_failed + n_killed
+  terminal_count <- n_done + n_failed + n_cancelled
   completion_ratio <- if (n_total == 0) 0 else terminal_count / n_total
 
   slots <- max(1L, as.integer(max_slots %||% 1L))
@@ -332,7 +332,7 @@ dashboard_summary_metrics <- function(tab, max_slots = 1L) {
     queued = n_queued,
     done = n_done,
     failed = n_failed,
-    killed = n_killed,
+    cancelled = n_cancelled,
     slots_used = n_running,
     slots_total = slots,
     slot_ratio = slot_ratio,
@@ -353,9 +353,18 @@ status_badge_class <- function(status) {
     queued = "status-queued",
     done = "status-done",
     failed = "status-failed",
-    killed = "status-killed",
+    cancelled = "status-cancelled",
     "status-unknown"
   )
+}
+
+# Map internal status codes to user-facing labels.
+# Keeps internal values stable while presenting clearer wording in UI.
+status_display_label <- function(status) {
+  if (identical(status, "cancelled")) {
+    return("cancelled")
+  }
+  status
 }
 
 # Map task status to card wrapper CSS class.

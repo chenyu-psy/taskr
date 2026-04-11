@@ -120,7 +120,7 @@ test_that("Task kill updates status and stops the process", {
 
   task$kill()
 
-  expect_equal(task$status(), "killed")
+  expect_equal(task$status(), "cancelled")
   expect_equal(fake_process$state$kill_calls, 1L)
   expect_false(task$is_alive())
   expect_s3_class(task$finished_at, "POSIXct")

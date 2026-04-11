@@ -88,7 +88,7 @@ sort_task_table <- function(tab) {
     return(tab)
   }
 
-  status_levels <- c("done", "running", "queued", "failed", "killed")
+  status_levels <- c("done", "running", "queued", "failed", "cancelled")
   status_rank <- match(tab$status, status_levels)
   status_rank[is.na(status_rank)] <- length(status_levels) + 1L
 

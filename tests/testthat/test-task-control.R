@@ -1,6 +1,6 @@
 make_killable_running_task <- function() {
   state <- new.env(parent = emptyenv())
-  state$killed <- FALSE
+  state$cancelled <- FALSE
 
   list(
     error = NULL,
@@ -8,9 +8,9 @@ make_killable_running_task <- function() {
     progress = function() NULL,
     read_output = function() "",
     read_error = function() "",
-    is_alive = function() !state$killed,
+    is_alive = function() !state$cancelled,
     kill = function() {
-      state$killed <- TRUE
+      state$cancelled <- TRUE
       invisible(NULL)
     },
     elapsed = function() 0,
@@ -35,7 +35,7 @@ make_control_item <- function(id, label, status, path = NULL, task = NULL) {
   )
 }
 
-test_that("cancel_task removes queued task and marks it killed", {
+test_that("cancel_task removes queued task and marks it cancelled", {
   cancel_task <- getFromNamespace("cancel_task", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
@@ -56,7 +56,7 @@ test_that("cancel_task removes queued task and marks it killed", {
 
   expect_length(pkg_env$scheduler$queue, 0)
   expect_true("task_001" %in% names(pkg_env$scheduler$done))
-  expect_identical(pkg_env$scheduler$done$task_001$status, "killed")
+  expect_identical(pkg_env$scheduler$done$task_001$status, "cancelled")
   expect_false(file.exists(path))
 })
 
@@ -77,9 +77,9 @@ test_that("cancel_task kills a running task", {
 
   cancel_task("run_a")
 
-  expect_true(task_obj$state$killed)
+  expect_true(task_obj$state$cancelled)
   expect_length(pkg_env$scheduler$running, 0)
-  expect_identical(pkg_env$scheduler$done$task_010$status, "killed")
+  expect_identical(pkg_env$scheduler$done$task_010$status, "cancelled")
 })
 
 test_that("cancel_task warns when task is already terminal", {
@@ -135,7 +135,7 @@ test_that("clean_tasks removes done records and deletes result files", {
   pkg_env$scheduler$done <- list(
     task_100 = make_control_item("task_100", "a", "done", path = p1),
     task_101 = make_control_item("task_101", "b", "failed", path = p2),
-    task_102 = make_control_item("task_102", "c", "killed", path = NULL)
+    task_102 = make_control_item("task_102", "c", "cancelled", path = NULL)
   )
   pkg_env$scheduler$label_index <- list(
     a = "task_100",

@@ -40,7 +40,7 @@ test_that("cleanup_active_tasks kills tracked tasks", {
   taskr:::register_active_task(task)
   taskr:::cleanup_active_tasks()
 
-  expect_equal(task$status(), "killed")
+  expect_equal(task$status(), "cancelled")
   expect_false(exists("task_state_002", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
 })
 
@@ -78,7 +78,7 @@ test_that(".onUnload kills tracked tasks and removes the temp directory", {
   taskr:::register_active_task(task)
   taskr:::.onUnload("")
 
-  expect_equal(task$status(), "killed")
+  expect_equal(task$status(), "cancelled")
   expect_false(dir.exists(tempdir_path))
 
   taskr:::.onLoad("", "taskr")

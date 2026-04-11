@@ -81,7 +81,7 @@ test_that("tick recycles terminal running tasks into done", {
   expect_equal(next_state$done$task_010$progress, 1)
 })
 
-test_that("tick recycles failed and killed tasks into done with metadata", {
+test_that("tick recycles failed and cancelled tasks into done with metadata", {
   failed_item <- list(
     id = "task_fail",
     priority = 0L,
@@ -95,14 +95,14 @@ test_that("tick recycles failed and killed tasks into done with metadata", {
       error_message = "boom"
     )
   )
-  killed_item <- list(
-    id = "task_killed",
+  cancelled_item <- list(
+    id = "task_cancelled",
     priority = 0L,
     resources = list(slots = 1L),
     status = "running",
     task = make_scripted_task(
-      id = "task_killed",
-      status_seq = "killed",
+      id = "task_cancelled",
+      status_seq = "cancelled",
       output = "",
       error_output = ""
     )
@@ -110,7 +110,7 @@ test_that("tick recycles failed and killed tasks into done with metadata", {
 
   state <- make_tick_state(
     capacity_slots = 2L,
-    running = list(task_fail = failed_item, task_killed = killed_item),
+    running = list(task_fail = failed_item, task_cancelled = cancelled_item),
     queue = list()
   )
 
@@ -120,7 +120,7 @@ test_that("tick recycles failed and killed tasks into done with metadata", {
   expect_equal(next_state$done$task_fail$status, "failed")
   expect_equal(next_state$done$task_fail$error, "boom")
   expect_equal(next_state$done$task_fail$stderr_buffer, "boom\n")
-  expect_equal(next_state$done$task_killed$status, "killed")
+  expect_equal(next_state$done$task_cancelled$status, "cancelled")
 })
 
 test_that("tick skips oversized head task and can start later smaller task", {

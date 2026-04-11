@@ -61,7 +61,7 @@ test_that("dashboard_summary_metrics returns slot and completion ratios", {
 
   tab <- data.frame(
     id = paste0("task_", 1:5),
-    status = c("running", "queued", "done", "failed", "killed"),
+    status = c("running", "queued", "done", "failed", "cancelled"),
     stringsAsFactors = FALSE
   )
 
@@ -72,7 +72,7 @@ test_that("dashboard_summary_metrics returns slot and completion ratios", {
   expect_equal(summary$queued, 1)
   expect_equal(summary$done, 1)
   expect_equal(summary$failed, 1)
-  expect_equal(summary$killed, 1)
+  expect_equal(summary$cancelled, 1)
   expect_equal(summary$slots_used, 1)
   expect_equal(summary$slots_total, 4)
   expect_equal(summary$slot_ratio, 0.25)

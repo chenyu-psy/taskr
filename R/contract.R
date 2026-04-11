@@ -30,12 +30,12 @@
 #   - "running"
 #   - "done"
 #   - "failed"
-#   - "killed"
+#   - "cancelled"
 # - Meaning:
 #   - "running": task has been launched and not reached a terminal state.
 #   - "done": task call finished successfully and expected result is available.
 #   - "failed": task call finished with error or subprocess ended unexpectedly.
-#   - "killed": task was explicitly cancelled/killed.
+#   - "cancelled": task was explicitly cancelled/cancelled.
 #
 # 2) obj$is_alive()
 # - Return: logical(1)
@@ -67,7 +67,7 @@
 # - Return: invisible(self) (or equivalent side-effect-only behavior).
 # - Requirement:
 #   - Idempotent: repeated calls should not error.
-#   - Must transition task status to "killed".
+#   - Must transition task status to "cancelled".
 #
 # 7) obj$elapsed()
 # - Return: numeric(1) seconds (or difftime coercible to numeric seconds).

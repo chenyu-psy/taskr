@@ -94,6 +94,6 @@ test_that("integration: cancel_task kills running task", {
 
   expect_true(wait_for_task_status(list_tasks, "int_cancel", "running", timeout = 15))
   taskr::cancel_task("int_cancel")
-  expect_true(wait_for_task_status(list_tasks, "int_cancel", "killed", timeout = 15))
-  expect_error(task_result("int_cancel"), "killed")
+  expect_true(wait_for_task_status(list_tasks, "int_cancel", "cancelled", timeout = 15))
+  expect_error(task_result("int_cancel"), "cancelled")
 })
