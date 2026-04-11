@@ -61,7 +61,26 @@ format_dashboard_time <- function(x) {
     return("-")
   }
 
-  format(as.POSIXct(x), "%m-%d %H:%M:%S")
+  local_tz <- Sys.timezone()
+  if (is.null(local_tz) || length(local_tz) == 0 || is.na(local_tz) || !nzchar(local_tz)) {
+    local_tz <- ""
+  }
+
+  format(as.POSIXct(x), "%m-%d %H:%M:%S", tz = local_tz)
+}
+
+# Normalize one task timestamp field to POSIXct.
+# Keeps existing POSIXct values intact to avoid accidental timezone drift.
+normalize_dashboard_posixct <- function(x) {
+  if (is.null(x) || length(x) == 0 || all(is.na(x))) {
+    return(as.POSIXct(NA))
+  }
+
+  if (inherits(x, "POSIXt")) {
+    return(as.POSIXct(x))
+  }
+
+  suppressWarnings(as.POSIXct(x, origin = "1970-01-01", tz = "UTC"))
 }
 
 # Collect queue/running/done task items into one flat list.
@@ -121,9 +140,9 @@ dashboard_item_to_row <- function(item) {
     progress = as.numeric(item$progress %||% NA_real_),
     message = as.character(item$message %||% ""),
     error = as.character(item$error %||% ""),
-    submit_time = as.POSIXct(item$submit_time %||% NA),
-    start_time = as.POSIXct(item$start_time %||% NA),
-    end_time = as.POSIXct(item$end_time %||% NA),
+    submit_time = normalize_dashboard_posixct(item$submit_time %||% NA),
+    start_time = normalize_dashboard_posixct(item$start_time %||% NA),
+    end_time = normalize_dashboard_posixct(item$end_time %||% NA),
     stdout = as.character(item$stdout_buffer %||% ""),
     stderr = as.character(item$stderr_buffer %||% ""),
     stringsAsFactors = FALSE
@@ -439,43 +458,284 @@ normalize_progress_fraction <- function(progress, default_fraction = 0.5) {
   max(0, min(1, p[[1]]))
 }
 
+# Normalize mixed console output into clean display lines.
+# Handles ANSI color codes and carriage-return updates used by progress bars.
+normalize_console_lines <- function(text) {
+  if (!is.character(text) || length(text) != 1 || is.na(text) || !nzchar(text)) {
+    return(character())
+  }
+
+  clean <- gsub("\u001b\\[[0-9;]*[A-Za-z]", "", text, perl = TRUE)
+  clean <- gsub("\r\n", "\n", clean, fixed = TRUE)
+  lines <- unlist(strsplit(clean, "\r|\n", perl = TRUE), use.names = FALSE)
+  lines <- trimws(lines)
+  lines[nzchar(lines)]
+}
+
+# Detect percent contexts that usually represent metrics, not task progress.
+has_non_progress_percent_context <- function(line) {
+  low <- tolower(line %||% "")
+  grepl("\\b(accuracy|acc|acceptance\\s+rate|error\\s+rate|failure\\s+rate|memory|cpu|gpu|ram|utili[sz]ation|usage|auc|f1|precision|recall|rhat|ess)\\b", low, perl = TRUE)
+}
+
+# Detect words that strongly suggest progress semantics.
+has_progress_context <- function(line) {
+  low <- tolower(line %||% "")
+  grepl("\\b(progress|step|iter(?:ation)?|epoch|batch|sample|sampling|warmup|download(?:ing)?|upload(?:ing)?|process(?:ing)?|train(?:ing)?|fit(?:ting)?|complete(?:d)?|chain)\\b", low, perl = TRUE)
+}
+
+# Parse one line with explicit fraction style progress (`x/y`, `x of y`).
+parse_fraction_progress_line <- function(line) {
+  if (!is.character(line) || length(line) != 1 || is.na(line) || !nzchar(trimws(line))) {
+    return(NA_real_)
+  }
+
+  low <- tolower(line)
+  if (grepl("\\b(errors?|failed|failures|passed|tests?)\\b", low, perl = TRUE)) {
+    return(NA_real_)
+  }
+
+  context_pat <- "(?:iteration|iter|step|epoch|batch|progress|sample|sampling|draw|warmup)"
+  ratio_pat <- "(\\d+)\\s*(?:/|of|out\\s+of)\\s*(\\d+)"
+  m_ctx <- regexec(paste0(context_pat, "[^0-9]{0,20}", ratio_pat), line, perl = TRUE, ignore.case = TRUE)
+  g_ctx <- regmatches(line, m_ctx)[[1]]
+  if (length(g_ctx) > 0) {
+    num <- as.numeric(g_ctx[[2]])
+    den <- as.numeric(g_ctx[[3]])
+    if (!is.na(num) && !is.na(den) && den > 0) {
+      return(max(0, min(1, num / den)))
+    }
+  }
+
+  if (!has_progress_context(line)) {
+    return(NA_real_)
+  }
+
+  m_any <- regexec(ratio_pat, line, perl = TRUE, ignore.case = TRUE)
+  g_any <- regmatches(line, m_any)[[1]]
+  if (length(g_any) == 0) {
+    return(NA_real_)
+  }
+
+  num <- as.numeric(g_any[[2]])
+  den <- as.numeric(g_any[[3]])
+  if (is.na(num) || is.na(den) || den <= 0) {
+    return(NA_real_)
+  }
+
+  max(0, min(1, num / den))
+}
+
+# Parse one line with percent style progress (`45%`), with safety filters.
+parse_percent_progress_line <- function(line) {
+  if (!is.character(line) || length(line) != 1 || is.na(line) || !nzchar(trimws(line))) {
+    return(NA_real_)
+  }
+
+  if (has_non_progress_percent_context(line)) {
+    return(NA_real_)
+  }
+
+  m <- gregexpr("(\\d{1,3}(?:\\.\\d+)?)\\s*%", line, perl = TRUE, ignore.case = TRUE)
+  vals <- regmatches(line, m)[[1]]
+  if (length(vals) == 0) {
+    return(NA_real_)
+  }
+
+  pct <- suppressWarnings(as.numeric(gsub("%", "", vals[length(vals)], fixed = TRUE)))
+  if (is.na(pct)) {
+    return(NA_real_)
+  }
+
+  max(0, min(1, pct / 100))
+}
+
+# Parse one line with bounded visual progress bars (`[###---]`, `|███   |`).
+parse_visual_bar_progress_line <- function(line) {
+  if (!is.character(line) || length(line) != 1 || is.na(line) || !nzchar(trimws(line))) {
+    return(NA_real_)
+  }
+
+  bar_pats <- c("\\[([#=+\\.\\- _*█▓▒]{5,})\\]", "\\|([#=+\\.\\- _*█▓▒]{5,})\\|")
+  for (pat in bar_pats) {
+    m <- regexec(pat, line, perl = TRUE)
+    g <- regmatches(line, m)[[1]]
+    if (length(g) == 0) {
+      next
+    }
+
+    bar <- g[[2]]
+    width <- nchar(bar, type = "chars")
+    if (is.na(width) || width < 5) {
+      next
+    }
+
+    chars <- strsplit(bar, "", fixed = TRUE)[[1]]
+    fill_count <- sum(chars %in% c("#", "=", "+", "*", "█", "▓", "▒"))
+    if (fill_count <= 0) {
+      next
+    }
+
+    return(max(0, min(1, fill_count / width)))
+  }
+
+  NA_real_
+}
+
+# Parse generic task progress from logs using fixed priority:
+# fraction > percent > visual bar.
+parse_generic_progress_fraction <- function(text) {
+  lines <- normalize_console_lines(text)
+  if (length(lines) == 0) {
+    return(NA_real_)
+  }
+
+  latest <- NA_real_
+  for (line in lines) {
+    fraction <- parse_fraction_progress_line(line)
+    if (is.na(fraction)) {
+      fraction <- parse_percent_progress_line(line)
+    }
+    if (is.na(fraction)) {
+      fraction <- parse_visual_bar_progress_line(line)
+    }
+    if (!is.na(fraction) && is.finite(fraction)) {
+      latest <- max(0, min(1, fraction))
+    }
+  }
+
+  latest
+}
+
+# Parse generic chain progress rows from lines like:
+# "Chain 2 step 20/100" or "Chain 2: progress 45%".
+extract_chain_progress_rows <- function(text) {
+  empty_tab <- function() {
+    data.frame(
+      chain = integer(),
+      progress = numeric(),
+      phase = character(),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  lines <- normalize_console_lines(text)
+  if (length(lines) == 0) {
+    return(empty_tab())
+  }
+
+  rows <- list()
+  for (line in lines) {
+    chain_match <- regexec("chain\\s*(\\d+)", line, ignore.case = TRUE, perl = TRUE)
+    chain_groups <- regmatches(line, chain_match)[[1]]
+    if (length(chain_groups) == 0) {
+      next
+    }
+    chain_id <- as.integer(chain_groups[[2]])
+    if (is.na(chain_id)) {
+      next
+    }
+
+    fraction <- parse_fraction_progress_line(line)
+    if (is.na(fraction)) {
+      fraction <- parse_percent_progress_line(line)
+    }
+    if (is.na(fraction)) {
+      fraction <- parse_visual_bar_progress_line(line)
+    }
+    if (is.na(fraction) || !is.finite(fraction)) {
+      next
+    }
+
+    rows[[length(rows) + 1L]] <- data.frame(
+      chain = chain_id,
+      progress = max(0, min(1, fraction)),
+      phase = NA_character_,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  if (length(rows) == 0) {
+    return(empty_tab())
+  }
+
+  all_rows <- do.call(rbind, rows)
+  latest_idx <- tapply(seq_len(nrow(all_rows)), all_rows$chain, function(idx) tail(idx, 1))
+  out <- all_rows[as.integer(latest_idx), , drop = FALSE]
+  out <- out[order(out$chain), , drop = FALSE]
+  rownames(out) <- NULL
+  out
+}
+
+# Decide display progress for Dashboard running cards.
+# Priority:
+# 1) newly parsed progress from logs
+# 2) task-provided progress (`report_progress`)
+# 3) cached display progress (freeze previous value)
+# 4) default fallback (50%)
+resolve_dashboard_progress_fraction <- function(
+    parsed_fraction,
+    task_fraction = NA_real_,
+    cached_fraction = NA_real_,
+    default_fraction = 0.5) {
+  if (!is.na(parsed_fraction) && is.finite(parsed_fraction)) {
+    return(max(0, min(1, as.numeric(parsed_fraction))))
+  }
+  if (!is.na(task_fraction) && is.finite(task_fraction)) {
+    return(max(0, min(1, as.numeric(task_fraction))))
+  }
+  if (!is.na(cached_fraction) && is.finite(cached_fraction)) {
+    return(max(0, min(1, as.numeric(cached_fraction))))
+  }
+
+  max(0, min(1, as.numeric(default_fraction)))
+}
+
+# Parse one task's logs for Dashboard display.
+# Returns chain-level progress when available; otherwise a single fraction.
+dashboard_parse_task_progress <- function(task_id) {
+  out <- list(
+    chain = data.frame(
+      chain = integer(),
+      progress = numeric(),
+      phase = character(),
+      stringsAsFactors = FALSE
+    ),
+    fraction = NA_real_
+  )
+
+  if (is.null(task_id) || length(task_id) == 0 || is.na(task_id) || !nzchar(task_id)) {
+    return(out)
+  }
+
+  logs <- tryCatch(task_logs(task_id), error = function(e) NULL)
+  if (is.null(logs)) {
+    return(out)
+  }
+
+  text <- paste(logs$stdout %||% "", logs$stderr %||% "", sep = "\n")
+
+  chain_tab <- extract_stan_progress_rows(text)
+  if (nrow(chain_tab) == 0) {
+    chain_tab <- extract_chain_progress_rows(text)
+  }
+
+  if (nrow(chain_tab) > 0) {
+    out$chain <- chain_tab[, c("chain", "progress", "phase"), drop = FALSE]
+    return(out)
+  }
+
+  out$fraction <- parse_generic_progress_fraction(text)
+  out
+}
+
 # Parse per-chain Stan/model progress from one task's logs.
 # Args:
 # - task_id: Task id used by `task_logs()`.
 # Returns:
 # - data.frame with columns `chain`, `progress`, and `phase`.
 dashboard_stan_chain_progress <- function(task_id) {
-  if (is.null(task_id) || length(task_id) == 0 || is.na(task_id) || !nzchar(task_id)) {
-    return(data.frame(
-      chain = integer(),
-      progress = numeric(),
-      phase = character(),
-      stringsAsFactors = FALSE
-    ))
-  }
-
-  logs <- tryCatch(task_logs(task_id), error = function(e) NULL)
-  if (is.null(logs)) {
-    return(data.frame(
-      chain = integer(),
-      progress = numeric(),
-      phase = character(),
-      stringsAsFactors = FALSE
-    ))
-  }
-
-  text <- paste(logs$stdout %||% "", logs$stderr %||% "", sep = "\n")
-  tab <- extract_stan_progress_rows(text)
-  if (nrow(tab) == 0) {
-    return(data.frame(
-      chain = integer(),
-      progress = numeric(),
-      phase = character(),
-      stringsAsFactors = FALSE
-    ))
-  }
-
-  tab[, c("chain", "progress", "phase"), drop = FALSE]
+  dashboard_parse_task_progress(task_id)$chain
 }
 
 # Build combined stdout/stderr tail text directly from one task row.

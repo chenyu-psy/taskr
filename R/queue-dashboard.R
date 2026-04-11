@@ -31,11 +31,6 @@ task_expand_block_ui <- function(task, expanded = FALSE) {
 
   log_text <- dashboard_log_text_from_row(task, tail_n = 120L)
 
-  err_text <- task$error[[1]] %||% ""
-  if (!is.character(err_text) || length(err_text) == 0 || is.na(err_text)) {
-    err_text <- ""
-  }
-
   shiny::div(
     class = "task-expand-block",
     shiny::div(class = "task-expand-meta", paste("Status:", task$status)),
@@ -43,7 +38,6 @@ task_expand_block_ui <- function(task, expanded = FALSE) {
     shiny::div(class = "task-expand-meta", paste("Submitted:", task$submit_time_label)),
     shiny::div(class = "task-expand-meta", paste("Started:", task$start_time_label)),
     shiny::div(class = "task-expand-meta", paste("Ended:", task$end_time_label)),
-    if (nzchar(err_text)) shiny::div(class = "task-expand-meta", paste("Error:", err_text)),
     shiny::tags$pre(
       class = "task-expand-logs",
       `data-scroll-key` = sprintf("logs-%s", task$id),
@@ -52,15 +46,19 @@ task_expand_block_ui <- function(task, expanded = FALSE) {
   )
 }
 
-running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
+running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE, chain_tab = NULL, progress_ratio = NULL) {
   select_id <- button_id_for_task("select", task$id)
   cancel_id <- button_id_for_task("cancel", task$id)
-  progress_ratio <- normalize_progress_fraction(task$progress, default_fraction = 0.5)
-  chain_tab <- dashboard_stan_chain_progress_from_row(task)
-  msg_text <- task$message[[1]] %||% ""
-  if (!is.character(msg_text) || length(msg_text) == 0 || is.na(msg_text)) {
-    msg_text <- ""
+  if (is.null(progress_ratio) || length(progress_ratio) == 0 || is.na(progress_ratio)) {
+    progress_ratio <- normalize_progress_fraction(task$progress, default_fraction = 0.5)
+  } else {
+    progress_ratio <- normalize_progress_fraction(progress_ratio, default_fraction = 0.5)
   }
+  if (is.null(chain_tab)) {
+    chain_tab <- dashboard_stan_chain_progress_from_row(task)
+  }
+  msg <- as.character(task$message %||% "")
+  show_msg <- !is.na(msg) && nzchar(trimws(msg))
   start_epoch <- if (is.na(task$start_time)) NA_real_ else as.numeric(as.POSIXct(task$start_time))
   start_epoch_attr <- if (is.na(start_epoch)) "" else sprintf("%.6f", start_epoch)
 
@@ -82,7 +80,7 @@ running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
       )
     ),
     shiny::div(class = "task-card-meta", paste("Started:", task$start_time_label)),
-    shiny::div(class = "task-card-msg", msg_text),
+    if (isTRUE(show_msg)) shiny::div(class = "task-card-msg", msg),
     if (nrow(chain_tab) > 0) {
       shiny::div(
         class = "chain-block",
@@ -429,6 +427,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       observed_select_ids <- shiny::reactiveVal(character())
       observed_cancel_ids <- shiny::reactiveVal(character())
       done_filter_status <- shiny::reactiveVal("done")
+      display_progress_cache <- shiny::reactiveVal(list())
       click_counts <- new.env(parent = emptyenv())
       click_counts$values <- list()
       read_snapshot_tasks <- function() {
@@ -546,14 +545,55 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 
       output$running_cards <- shiny::renderUI({
         expanded_task_id <- selected_id()
+        running_tab <- filtered_running_tasks()
+        progress_cache <- display_progress_cache()
+        if (is.null(progress_cache)) {
+          progress_cache <- list()
+        }
+
+        chain_by_id <- list()
+        progress_by_id <- list()
+
+        for (i in seq_len(nrow(running_tab))) {
+          task_row <- running_tab[i, , drop = FALSE]
+          task_id <- as.character(task_row$id[[1]])
+          task_progress <- as.numeric(task_row$progress[[1]])
+          cached_progress <- suppressWarnings(as.numeric(progress_cache[[task_id]] %||% NA_real_))
+
+          parsed <- dashboard_parse_task_progress(task_id)
+          chain_by_id[[task_id]] <- parsed$chain
+
+          resolved <- resolve_dashboard_progress_fraction(
+            parsed_fraction = parsed$fraction,
+            task_fraction = task_progress,
+            cached_fraction = cached_progress,
+            default_fraction = 0.5
+          )
+
+          progress_by_id[[task_id]] <- resolved
+          progress_cache[[task_id]] <- resolved
+        }
+
+        running_ids <- as.character(running_tab$id %||% character())
+        if (length(progress_cache) > 0) {
+          drop_ids <- setdiff(names(progress_cache), running_ids)
+          if (length(drop_ids) > 0) {
+            progress_cache[drop_ids] <- NULL
+          }
+        }
+        display_progress_cache(progress_cache)
+
         column_cards_ui(
-          filtered_running_tasks(),
+          running_tab,
           title = "Running",
           renderer = function(task) {
+            task_id <- as.character(task$id[[1]])
             running_task_card_ui(
               task,
               expanded = identical(task$id, expanded_task_id),
-              allow_cancel = !isTRUE(read_only)
+              allow_cancel = !isTRUE(read_only),
+              chain_tab = chain_by_id[[task_id]],
+              progress_ratio = progress_by_id[[task_id]]
             )
           }
         )
