@@ -22,7 +22,7 @@ changing the existing queue API.
 }
 }
 \examples{
-\donttest{
+\dontrun{
 init_queue(max_concurrent = 2)
 queue_dashboard()
 }

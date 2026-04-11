@@ -63,6 +63,27 @@ dashboard_collect_process_logs <- function(proc) {
   list(stdout = out %||% character(), stderr = err %||% character())
 }
 
+dashboard_detect_pkg_path <- function() {
+  wd_path <- normalizePath(getwd(), winslash = "/", mustWork = FALSE)
+  if (file.exists(file.path(wd_path, "DESCRIPTION"))) {
+    return(wd_path)
+  }
+
+  ns_path <- tryCatch(getNamespaceInfo("taskr", "path"), error = function(e) "")
+  if (is.character(ns_path) && nzchar(ns_path)) {
+    ns_path <- normalizePath(ns_path, winslash = "/", mustWork = FALSE)
+    if (file.exists(file.path(ns_path, "DESCRIPTION"))) {
+      return(ns_path)
+    }
+    parent_path <- dirname(ns_path)
+    if (file.exists(file.path(parent_path, "DESCRIPTION"))) {
+      return(parent_path)
+    }
+  }
+
+  ""
+}
+
 stop_dashboard_background <- function() {
   proc <- pkg_env$dashboard_process %||% NULL
   if (dashboard_process_is_alive(proc)) {
@@ -103,8 +124,8 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
 
   port <- dashboard_pick_port()
   url <- sprintf("http://127.0.0.1:%d", port)
-  pkg_path <- normalizePath(getwd(), winslash = "/", mustWork = FALSE)
-  use_pkgload <- file.exists(file.path(pkg_path, "DESCRIPTION"))
+  pkg_path <- dashboard_detect_pkg_path()
+  use_pkgload <- nzchar(pkg_path) && file.exists(file.path(pkg_path, "DESCRIPTION"))
 
   proc <- callr::r_bg(
     func = function(port, pkg_path, use_pkgload, snapshot_path) {
@@ -115,11 +136,19 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
           file.exists(file.path(pkg_path, "DESCRIPTION"))) {
         pkgload::load_all(pkg_path, export_all = FALSE, quiet = TRUE)
       } else {
-        library(taskr)
+        if (requireNamespace("taskr", quietly = TRUE)) {
+          library(taskr)
+        } else {
+          stop(
+            "Cannot start dashboard background process: `taskr` is not installed ",
+            "and no package source path was detected for pkgload::load_all()."
+          )
+        }
       }
 
+      app_factory <- getFromNamespace("queue_dashboard_app", "taskr")
       shiny::runApp(
-        taskr:::queue_dashboard_app(data_mode = "snapshot", snapshot_path = snapshot_path),
+        app_factory(data_mode = "snapshot", snapshot_path = snapshot_path),
         host = "127.0.0.1",
         port = as.integer(port),
         launch.browser = FALSE,
@@ -166,6 +195,13 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
 
 maybe_auto_launch_dashboard <- function() {
   if (!interactive()) {
+    return(invisible(NULL))
+  }
+  # Do not auto-launch dashboard during automated tests.
+  if (identical(Sys.getenv("TESTTHAT"), "true") || identical(Sys.getenv("TESTTHAT"), "TRUE")) {
+    return(invisible(NULL))
+  }
+  if (isTRUE(getOption("taskr.testing", FALSE))) {
     return(invisible(NULL))
   }
   if (!isTRUE(getOption("taskr.auto_dashboard", TRUE))) {

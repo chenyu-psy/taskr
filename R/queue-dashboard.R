@@ -31,6 +31,11 @@ task_expand_block_ui <- function(task, expanded = FALSE) {
 
   log_text <- dashboard_log_text_from_row(task, tail_n = 120L)
 
+  err_text <- task$error[[1]] %||% ""
+  if (!is.character(err_text) || length(err_text) == 0 || is.na(err_text)) {
+    err_text <- ""
+  }
+
   shiny::div(
     class = "task-expand-block",
     shiny::div(class = "task-expand-meta", paste("Status:", task$status)),
@@ -38,7 +43,7 @@ task_expand_block_ui <- function(task, expanded = FALSE) {
     shiny::div(class = "task-expand-meta", paste("Submitted:", task$submit_time_label)),
     shiny::div(class = "task-expand-meta", paste("Started:", task$start_time_label)),
     shiny::div(class = "task-expand-meta", paste("Ended:", task$end_time_label)),
-    shiny::div(class = "task-expand-meta", paste("Error:", ifelse(nzchar(task$error %||% ""), task$error, "-"))),
+    if (nzchar(err_text)) shiny::div(class = "task-expand-meta", paste("Error:", err_text)),
     shiny::tags$pre(
       class = "task-expand-logs",
       `data-scroll-key` = sprintf("logs-%s", task$id),
@@ -52,6 +57,10 @@ running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
   cancel_id <- button_id_for_task("cancel", task$id)
   progress_ratio <- normalize_progress_fraction(task$progress, default_fraction = 0.5)
   chain_tab <- dashboard_stan_chain_progress_from_row(task)
+  msg_text <- task$message[[1]] %||% ""
+  if (!is.character(msg_text) || length(msg_text) == 0 || is.na(msg_text)) {
+    msg_text <- ""
+  }
   start_epoch <- if (is.na(task$start_time)) NA_real_ else as.numeric(as.POSIXct(task$start_time))
   start_epoch_attr <- if (is.na(start_epoch)) "" else sprintf("%.6f", start_epoch)
 
@@ -73,7 +82,7 @@ running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
       )
     ),
     shiny::div(class = "task-card-meta", paste("Started:", task$start_time_label)),
-    shiny::div(class = "task-card-msg", task$message %||% ""),
+    shiny::div(class = "task-card-msg", msg_text),
     if (nrow(chain_tab) > 0) {
       shiny::div(
         class = "chain-block",
@@ -779,7 +788,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 #'   available.
 #' @return Invisibly returns the dashboard URL.
 #' @examples
-#' \donttest{
+#' \dontrun{
 #' init_queue(max_concurrent = 2)
 #' queue_dashboard()
 #' }
