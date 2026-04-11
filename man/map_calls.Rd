@@ -51,10 +51,13 @@ Purpose:
 \examples{
 init_queue(max_concurrent = 1)
 grid <- data.frame(model = c("a", "b"), stringsAsFactors = FALSE)
-map_calls(
-  fun = function(formula) formula,
-  grid = grid,
-  fun_formula = function(model) paste0("y ~ ", model),
-  label_fmt = "fit_{model}"
-)
+if (interactive() && requireNamespace("callr", quietly = TRUE)) {
+  on.exit(shutdown_queue(), add = TRUE)
+  map_calls(
+    fun = function(formula) formula,
+    grid = grid,
+    fun_formula = function(model) paste0("y ~ ", model),
+    label_fmt = "fit_{model}"
+  )
+}
 }

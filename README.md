@@ -1,13 +1,17 @@
 # Overview
 
-This package provides a lightweight background task manager for R. It runs
-long-running jobs in separate R processes while keeping the main R session
-responsive. Built on a queue-based scheduler, it supports task submission,
-real-time progress reporting, and resource-aware scheduling.
+`taskr` is a lightweight background task manager for R. It runs long jobs in
+separate R processes while keeping your main session responsive.
 
-The package is editor-agnostic and works in base R, RStudio, Positron, or any
-other R environment. It is designed for research workflows involving model
-fitting, simulations, and other computationally intensive tasks.
+Current version focus:
+
+- submit tasks (`submit_task()`, `submit_call()`, `map_calls()`)
+- monitor tasks with the built-in Shiny **Task Monitor** (auto-launched)
+- control tasks (`cancel_task()`, `clean_tasks()`)
+- retrieve logs/results (`task_logs()`, `task_result()`)
+
+The queue is session-local and temporary by design: restarting R clears queue
+state and task records.
 
 # Installation
 
@@ -23,27 +27,20 @@ remotes::install_github("chenyu-psy/taskr")
 ```r
 library(taskr)
 
-# Initialize a queue with 2 concurrent slots
-init_queue(max_concurrent = 2)
+# Optional: set concurrency once
+init_queue(max_concurrent = 3)
 
-# Submit a background task
+# Submit a task (Task Monitor auto-opens in Viewer when available)
 submit_task(
   expr = {
-    Sys.sleep(5)
+    Sys.sleep(10)
     "done"
   },
   label = "demo"
 )
 
-# Check status
-list_tasks(label = "demo")
-
-# Retrieve result (blocking)
-task_result("demo")
-
-# Clean up
-clean_tasks()
-shutdown_queue()
+# Query status any time
+list_tasks()
 ```
 
 # Task Manager
@@ -125,14 +122,12 @@ Track the progress and status of all submitted tasks:
 list_tasks()                     # view all tasks
 list_tasks(status = "running")   # filter by status
 list_tasks(label = "brm_model")  # filter by label
-
-queue_overview()                 # compact summary of queue state
 ```
 
 Retrieve logs and results:
 
 ```r
-task_logs("brm_model")    # stdout/stderr captured from the child process
+task_logs("brm_model")    # stdout/stderr from the child process
 task_result("brm_model")  # blocking: waits until the task finishes
 ```
 
@@ -168,30 +163,50 @@ submit_task(
 list_tasks(label = "long_job")
 ```
 
-### 2. Stan Progress Parsing
+### 2. Task Monitor (Shiny)
 
-The `stan_progress` function parses CmdStan/RStan progress output from task
-logs and displays compact per-chain progress bars:
+`taskr` now uses a Shiny dashboard (**Task Monitor**) as the default live
+monitoring interface.
+
+Behavior in the current version:
+
+- dashboard auto-launches after `submit_*` calls (interactive sessions)
+- dashboard runs in a background process, so console stays usable
+- console prints `Listening on http://127.0.0.1:...` for browser access
+- set `options(taskr.auto_dashboard = FALSE)` to disable auto-launch
+
+Task Monitor layout:
+
+- **Summary**: slot usage and terminal completion progress bars
+- **Running**: active tasks with elapsed time, cancel action, and progress bars
+  (including per-chain bars for Stan/JAGS-style logs when detected)
+- **Queued**: waiting tasks sorted by priority then submit time
+- **Finished**: terminal tasks with filters (`done` / `failed` / `killed`) and
+  `Clean Finished`
+- click a task card to expand details and tail logs
+
+A ready-to-run demo is available at `inst/examples/shiny-loop-demo.R`:
 
 ```r
-stan_progress("brm_model")
+source(system.file("examples", "shiny-loop-demo.R", package = "taskr"))
 ```
-
-This prints per-chain text progress bars and returns a data frame with
-columns `chain`, `progress`, and `phase`.
 
 # Notes
 
-- The scheduler lifecycle is automatic: it starts lazily when tasks are
-  submitted and stops when the queue is empty.
+- The scheduler starts lazily when tasks are submitted and stops when the queue
+  is empty.
 - `import = "auto"` (the default) automatically captures referenced variables
   and loaded packages from the calling environment.
 - Task status values: `"queued"`, `"running"`, `"done"`, `"failed"`, `"killed"`.
 - Results are stored as `.rds` files in a temporary directory and are lost
   when the R session ends.
+- Dashboard snapshots are temporary session files used for background monitor
+  reads. They are not long-term records.
 - `list_tasks()` returns a data frame with columns: `id`, `label`, `status`,
   `progress`, `message`, `elapsed`, `error`, `submit_time`, `start_time`,
   `end_time`.
+- The Task Monitor requires `shiny` and background launch requires `callr`
+  (both listed in Suggests).
 
 # Status
 

@@ -29,7 +29,12 @@ task_expand_block_ui <- function(task, expanded = FALSE) {
     return(NULL)
   }
 
-  log_text <- dashboard_log_text(task$id, tail_n = 120L)
+  log_text <- dashboard_log_text_from_row(task, tail_n = 120L)
+
+  err_text <- task$error[[1]] %||% ""
+  if (!is.character(err_text) || length(err_text) == 0 || is.na(err_text)) {
+    err_text <- ""
+  }
 
   shiny::div(
     class = "task-expand-block",
@@ -38,7 +43,7 @@ task_expand_block_ui <- function(task, expanded = FALSE) {
     shiny::div(class = "task-expand-meta", paste("Submitted:", task$submit_time_label)),
     shiny::div(class = "task-expand-meta", paste("Started:", task$start_time_label)),
     shiny::div(class = "task-expand-meta", paste("Ended:", task$end_time_label)),
-    shiny::div(class = "task-expand-meta", paste("Error:", ifelse(nzchar(task$error %||% ""), task$error, "-"))),
+    if (nzchar(err_text)) shiny::div(class = "task-expand-meta", paste("Error:", err_text)),
     shiny::tags$pre(
       class = "task-expand-logs",
       `data-scroll-key` = sprintf("logs-%s", task$id),
@@ -47,11 +52,15 @@ task_expand_block_ui <- function(task, expanded = FALSE) {
   )
 }
 
-running_task_card_ui <- function(task, expanded = FALSE) {
+running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
   select_id <- button_id_for_task("select", task$id)
   cancel_id <- button_id_for_task("cancel", task$id)
   progress_ratio <- normalize_progress_fraction(task$progress, default_fraction = 0.5)
-  chain_tab <- dashboard_stan_chain_progress(task$id)
+  chain_tab <- dashboard_stan_chain_progress_from_row(task)
+  msg_text <- task$message[[1]] %||% ""
+  if (!is.character(msg_text) || length(msg_text) == 0 || is.na(msg_text)) {
+    msg_text <- ""
+  }
   start_epoch <- if (is.na(task$start_time)) NA_real_ else as.numeric(as.POSIXct(task$start_time))
   start_epoch_attr <- if (is.na(start_epoch)) "" else sprintf("%.6f", start_epoch)
 
@@ -73,7 +82,7 @@ running_task_card_ui <- function(task, expanded = FALSE) {
       )
     ),
     shiny::div(class = "task-card-meta", paste("Started:", task$start_time_label)),
-    shiny::div(class = "task-card-msg", task$message %||% ""),
+    shiny::div(class = "task-card-msg", msg_text),
     if (nrow(chain_tab) > 0) {
       shiny::div(
         class = "chain-block",
@@ -109,7 +118,9 @@ running_task_card_ui <- function(task, expanded = FALSE) {
     shiny::div(
       class = "task-card-actions",
       shiny::actionButton(select_id, ifelse(expanded, "Collapse", "Details"), class = "btn btn-sm btn-outline-primary"),
-      shiny::actionButton(cancel_id, "Cancel", class = "btn btn-sm btn-outline-danger")
+      if (isTRUE(allow_cancel)) {
+        shiny::actionButton(cancel_id, "Cancel", class = "btn btn-sm btn-outline-danger")
+      }
     ),
     task_expand_block_ui(task, expanded = expanded)
   )
@@ -120,7 +131,7 @@ running_task_card_ui <- function(task, expanded = FALSE) {
 # - task: One-row data.frame for a queued task.
 # Returns:
 # - A `shiny::div` card tag.
-queued_task_card_ui <- function(task, expanded = FALSE) {
+queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
   select_id <- button_id_for_task("select", task$id)
   cancel_id <- button_id_for_task("cancel", task$id)
 
@@ -138,7 +149,9 @@ queued_task_card_ui <- function(task, expanded = FALSE) {
     shiny::div(
       class = "task-card-actions",
       shiny::actionButton(select_id, ifelse(expanded, "Collapse", "Details"), class = "btn btn-sm btn-outline-primary"),
-      shiny::actionButton(cancel_id, "Cancel", class = "btn btn-sm btn-outline-danger")
+      if (isTRUE(allow_cancel)) {
+        shiny::actionButton(cancel_id, "Cancel", class = "btn btn-sm btn-outline-danger")
+      }
     ),
     task_expand_block_ui(task, expanded = expanded)
   )
@@ -396,12 +409,16 @@ queue_dashboard_ui <- function() {
   )
 }
 
-queue_dashboard_app <- function() {
+queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path = NULL) {
   if (!requireNamespace("shiny", quietly = TRUE)) {
     stop("`queue_dashboard()` requires the `shiny` package. Install it with install.packages('shiny').")
   }
 
-  ensure_queue_initialized()
+  data_mode <- match.arg(data_mode)
+  read_only <- identical(data_mode, "snapshot")
+  if (!isTRUE(read_only)) {
+    ensure_queue_initialized()
+  }
 
   app <- shiny::shinyApp(
     ui = queue_dashboard_ui(),
@@ -414,16 +431,34 @@ queue_dashboard_app <- function() {
       done_filter_status <- shiny::reactiveVal("done")
       click_counts <- new.env(parent = emptyenv())
       click_counts$values <- list()
+      read_snapshot_tasks <- function() {
+        out <- tryCatch(read_dashboard_snapshot(path = snapshot_path), error = function(e) NULL)
+        if (is.null(out)) {
+          return(list(tasks = empty_dashboard_table(), max_concurrent = 1L))
+        }
+        list(
+          tasks = out$tasks %||% empty_dashboard_table(),
+          max_concurrent = as.integer(out$max_concurrent %||% 1L)
+        )
+      }
 
       state_tasks <- shiny::reactivePoll(
         intervalMillis = 1000,
         session = session,
         checkFunc = function() {
-          tab <- extract_dashboard_snapshot(now = Sys.time())
+          tab <- if (isTRUE(read_only)) {
+            read_snapshot_tasks()$tasks
+          } else {
+            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
+          }
           paste0(dashboard_state_signature(tab), "-", refresh_nonce())
         },
         valueFunc = function() {
-          tab <- extract_dashboard_snapshot(now = Sys.time())
+          tab <- if (isTRUE(read_only)) {
+            read_snapshot_tasks()$tasks
+          } else {
+            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
+          }
           add_dashboard_derived_columns(tab, now = Sys.time())
         }
       )
@@ -432,7 +467,11 @@ queue_dashboard_app <- function() {
         intervalMillis = 1000,
         session = session,
         checkFunc = function() {
-          tab <- extract_dashboard_snapshot(now = Sys.time())
+          tab <- if (isTRUE(read_only)) {
+            read_snapshot_tasks()$tasks
+          } else {
+            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
+          }
           expanded_id <- selected_id()
           running_now <- tab[tab$status == "running", , drop = FALSE]
           expanded_is_running <- !is.null(expanded_id) && expanded_id %in% running_now$id
@@ -463,7 +502,11 @@ queue_dashboard_app <- function() {
           paste0(dashboard_running_signature(tab), "-", refresh_nonce())
         },
         valueFunc = function() {
-          tab <- extract_dashboard_snapshot(now = Sys.time())
+          tab <- if (isTRUE(read_only)) {
+            read_snapshot_tasks()$tasks
+          } else {
+            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
+          }
           add_dashboard_derived_columns(tab, now = Sys.time())
         }
       )
@@ -483,7 +526,11 @@ queue_dashboard_app <- function() {
       })
 
       output$summary_progress <- shiny::renderUI({
-        slots <- pkg_env$scheduler$capacity$slots %||% 1L
+        slots <- if (isTRUE(read_only)) {
+          read_snapshot_tasks()$max_concurrent %||% 1L
+        } else {
+          pkg_env$scheduler$capacity$slots %||% 1L
+        }
         summary <- dashboard_summary_metrics(filtered_state_tasks(), max_slots = slots)
         shiny::tagList(
           progress_bar_tag(
@@ -502,7 +549,13 @@ queue_dashboard_app <- function() {
         column_cards_ui(
           filtered_running_tasks(),
           title = "Running",
-          renderer = function(task) running_task_card_ui(task, expanded = identical(task$id, expanded_task_id))
+          renderer = function(task) {
+            running_task_card_ui(
+              task,
+              expanded = identical(task$id, expanded_task_id),
+              allow_cancel = !isTRUE(read_only)
+            )
+          }
         )
       })
 
@@ -511,7 +564,13 @@ queue_dashboard_app <- function() {
         column_cards_ui(
           state_split()$queued,
           title = "Queued",
-          renderer = function(task) queued_task_card_ui(task, expanded = identical(task$id, expanded_task_id))
+          renderer = function(task) {
+            queued_task_card_ui(
+              task,
+              expanded = identical(task$id, expanded_task_id),
+              allow_cancel = !isTRUE(read_only)
+            )
+          }
         )
       })
 
@@ -528,7 +587,9 @@ queue_dashboard_app <- function() {
           done_filtered,
           title = "Finished",
           renderer = function(task) done_task_card_ui(task, expanded = identical(task$id, expanded_task_id)),
-          header_right = shiny::actionButton("clean_finished", "Clean Finished", class = "btn btn-warning btn-sm"),
+          header_right = if (!isTRUE(read_only)) {
+            shiny::actionButton("clean_finished", "Clean Finished", class = "btn btn-warning btn-sm")
+          },
           subheader = done_filter_controls_ui(
             done_n = done_n,
             failed_n = failed_n,
@@ -605,7 +666,7 @@ queue_dashboard_app <- function() {
 
         observe_register_buttons(
           prefix = "cancel",
-          ids = ids,
+          ids = if (isTRUE(read_only)) character() else ids,
           ids_store = observed_cancel_ids,
           handler = function(task_id) {
             current <- state_tasks()
@@ -649,6 +710,9 @@ queue_dashboard_app <- function() {
       })
 
       shiny::observeEvent(input$confirm_running_cancel, {
+        if (isTRUE(read_only)) {
+          return(invisible(NULL))
+        }
         task_id <- pending_running_cancel()
         shiny::removeModal()
         if (is.null(task_id)) {
@@ -669,6 +733,9 @@ queue_dashboard_app <- function() {
       }, ignoreInit = TRUE)
 
       shiny::observeEvent(input$clean_finished, {
+        if (isTRUE(read_only)) {
+          return(invisible(NULL))
+        }
         tryCatch(
           {
             clean_tasks()
@@ -717,18 +784,21 @@ queue_dashboard_app <- function() {
 #' - Provide lightweight control actions (`cancel_task`, `clean_tasks`) without
 #'   changing the existing queue API.
 #'
-#' @return Invisibly returns the value from `shiny::runApp()`.
+#' @param open_viewer Whether to open dashboard URL in IDE Viewer when
+#'   available.
+#' @return Invisibly returns the dashboard URL.
 #' @examples
-#' \donttest{
+#' \dontrun{
 #' init_queue(max_concurrent = 2)
 #' queue_dashboard()
 #' }
 #' @export
-queue_dashboard <- function() {
+queue_dashboard <- function(open_viewer = TRUE) {
   if (!requireNamespace("shiny", quietly = TRUE)) {
     stop("`queue_dashboard()` requires the `shiny` package. Install it with install.packages('shiny').")
   }
 
-  app <- queue_dashboard_app()
-  invisible(shiny::runApp(app, display.mode = "normal", launch.browser = interactive()))
+  ensure_queue_initialized()
+  write_dashboard_snapshot()
+  invisible(launch_dashboard_background(open_viewer = open_viewer, announce = TRUE, focus_existing = TRUE))
 }

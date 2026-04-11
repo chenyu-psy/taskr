@@ -73,6 +73,27 @@ collect_dashboard_items <- function(state) {
   c(state$queue %||% list(), unname(state$running %||% list()), unname(state$done %||% list()))
 }
 
+# Build one snapshot table from a provided scheduler state.
+# Args:
+# - state: Scheduler state list.
+# Returns:
+# - Snapshot data.frame with stable dashboard columns.
+dashboard_snapshot_table_from_state <- function(state) {
+  if (is.null(state)) {
+    return(empty_dashboard_table())
+  }
+
+  items <- collect_dashboard_items(state)
+  if (length(items) == 0) {
+    return(empty_dashboard_table())
+  }
+
+  rows <- lapply(items, dashboard_item_to_row)
+  out <- do.call(rbind, rows)
+  rownames(out) <- NULL
+  out
+}
+
 # Fallback to task id when label is empty so cards always have a title.
 # Args:
 # - label: Optional task label.
@@ -124,15 +145,7 @@ extract_dashboard_snapshot <- function(now = Sys.time()) {
     start_scheduler_internal()
   }
 
-  items <- collect_dashboard_items(pkg_env$scheduler)
-  if (length(items) == 0) {
-    return(empty_dashboard_table())
-  }
-
-  rows <- lapply(items, dashboard_item_to_row)
-  out <- do.call(rbind, rows)
-  rownames(out) <- NULL
-  out
+  dashboard_snapshot_table_from_state(pkg_env$scheduler)
 }
 
 # Build an event-style signature for queue structure changes.
@@ -452,6 +465,69 @@ dashboard_stan_chain_progress <- function(task_id) {
   }
 
   text <- paste(logs$stdout %||% "", logs$stderr %||% "", sep = "\n")
+  tab <- extract_stan_progress_rows(text)
+  if (nrow(tab) == 0) {
+    return(data.frame(
+      chain = integer(),
+      progress = numeric(),
+      phase = character(),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  tab[, c("chain", "progress", "phase"), drop = FALSE]
+}
+
+# Build combined stdout/stderr tail text directly from one task row.
+# Args:
+# - task: One-row data.frame containing `stdout` and `stderr`.
+# - tail_n: Maximum number of lines kept per stream.
+# Returns:
+# - Multi-line text block for inline detail display.
+dashboard_log_text_from_row <- function(task, tail_n = 200L) {
+  if (is.null(task) || nrow(task) == 0) {
+    return("Task logs are not available for the selected task.")
+  }
+
+  stdout_lines <- unlist(strsplit(task$stdout[[1]] %||% "", "\n", fixed = TRUE), use.names = FALSE)
+  stderr_lines <- unlist(strsplit(task$stderr[[1]] %||% "", "\n", fixed = TRUE), use.names = FALSE)
+
+  if (length(stdout_lines) > tail_n) {
+    stdout_lines <- tail(stdout_lines, tail_n)
+  }
+  if (length(stderr_lines) > tail_n) {
+    stderr_lines <- tail(stderr_lines, tail_n)
+  }
+
+  stdout_text <- if (length(stdout_lines) == 0) "(empty)" else paste(stdout_lines, collapse = "\n")
+  stderr_text <- if (length(stderr_lines) == 0) "(empty)" else paste(stderr_lines, collapse = "\n")
+
+  paste(
+    "=== STDOUT (tail) ===",
+    stdout_text,
+    "",
+    "=== STDERR (tail) ===",
+    stderr_text,
+    sep = "\n"
+  )
+}
+
+# Parse per-chain progress directly from one task row.
+# Args:
+# - task: One-row data.frame containing `stdout` and `stderr`.
+# Returns:
+# - data.frame with columns `chain`, `progress`, and `phase`.
+dashboard_stan_chain_progress_from_row <- function(task) {
+  if (is.null(task) || nrow(task) == 0) {
+    return(data.frame(
+      chain = integer(),
+      progress = numeric(),
+      phase = character(),
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  text <- paste(task$stdout[[1]] %||% "", task$stderr[[1]] %||% "", sep = "\n")
   tab <- extract_stan_progress_rows(text)
   if (nrow(tab) == 0) {
     return(data.frame(

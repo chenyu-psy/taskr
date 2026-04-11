@@ -439,7 +439,8 @@ build_task_item <- function(
 #' @return Invisibly returns `NULL`.
 #' @examples
 #' init_queue(max_concurrent = 1)
-#' if (requireNamespace("callr", quietly = TRUE)) {
+#' if (interactive() && requireNamespace("callr", quietly = TRUE)) {
+#'   on.exit(shutdown_queue(), add = TRUE)
 #'   submit_task({ 1 + 1 }, label = "toy_expr")
 #' }
 #' @export
@@ -482,6 +483,8 @@ submit_task <- function(
   if (scheduler_has_work(pkg_env$scheduler)) {
     start_scheduler_internal()
   }
+  write_dashboard_snapshot()
+  maybe_auto_launch_dashboard()
   invisible(NULL)
 }
 
@@ -502,7 +505,8 @@ submit_task <- function(
 #' @return Invisibly returns `NULL`.
 #' @examples
 #' init_queue(max_concurrent = 1)
-#' if (requireNamespace("callr", quietly = TRUE)) {
+#' if (interactive() && requireNamespace("callr", quietly = TRUE)) {
+#'   on.exit(shutdown_queue(), add = TRUE)
 #'   submit_call(fun = sum, args = list(1, 2, 3), label = "toy_call")
 #' }
 #' @export
@@ -550,6 +554,8 @@ submit_call <- function(
   if (scheduler_has_work(pkg_env$scheduler)) {
     start_scheduler_internal()
   }
+  write_dashboard_snapshot()
+  maybe_auto_launch_dashboard()
   invisible(NULL)
 }
 
@@ -575,12 +581,15 @@ submit_call <- function(
 #' @examples
 #' init_queue(max_concurrent = 1)
 #' grid <- data.frame(model = c("a", "b"), stringsAsFactors = FALSE)
-#' map_calls(
-#'   fun = function(formula) formula,
-#'   grid = grid,
-#'   fun_formula = function(model) paste0("y ~ ", model),
-#'   label_fmt = "fit_{model}"
-#' )
+#' if (interactive() && requireNamespace("callr", quietly = TRUE)) {
+#'   on.exit(shutdown_queue(), add = TRUE)
+#'   map_calls(
+#'     fun = function(formula) formula,
+#'     grid = grid,
+#'     fun_formula = function(model) paste0("y ~ ", model),
+#'     label_fmt = "fit_{model}"
+#'   )
+#' }
 #' @export
 map_calls <- function(
     fun,

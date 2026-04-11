@@ -100,6 +100,10 @@ recycle_running_tasks <- function(state, now) {
     if (!is.null(task$error)) {
       item$error <- task$error
     }
+    proc <- task$process %||% NULL
+    if (!is.null(proc) && is.function(proc$close)) {
+      try(proc$close(), silent = TRUE)
+    }
     state$done[[id]] <- item
   }
 
