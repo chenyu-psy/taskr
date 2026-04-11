@@ -72,6 +72,24 @@ recycle_running_tasks <- function(state, now) {
       item$message <- prog$message %||% item$message
     }
 
+    # Keep scheduler item buffers in sync with task object buffers.
+    # This is important when `task$status()` internally consumes process
+    # events via `process$read()` and appends to the task-level buffers.
+    task_stdout <- task$stdout_buffer %||% NULL
+    task_stderr <- task$stderr_buffer %||% NULL
+    if (!is.null(task_stdout)) {
+      item$stdout_buffer <- task_stdout
+    }
+    if (!is.null(task_stderr)) {
+      item$stderr_buffer <- task_stderr
+    }
+
+    latest_prog <- tryCatch(task$progress(), error = function(e) NULL)
+    if (!is.null(latest_prog)) {
+      item$progress <- latest_prog$fraction %||% item$progress
+      item$message <- latest_prog$message %||% item$message
+    }
+
     if (identical(status, "running")) {
       keep_running[[id]] <- item
       next

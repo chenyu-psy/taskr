@@ -162,12 +162,17 @@ start_task_process <- function(
     workdir = workdir,
     env = env
   )
-  session <- callr::r_session$new(wait = TRUE)
-  session$call(
+  # Use r_bg with stdout/stderr pipes so running tasks can stream logs
+  # progressively into dashboard views.
+  session <- callr::r_bg(
     func = function(code) {
       eval(code, envir = .GlobalEnv)
+      invisible(NULL)
     },
-    args = list(code = wrapped_expr)
+    args = list(code = wrapped_expr),
+    stdout = "|",
+    stderr = "|",
+    supervise = TRUE
   )
 
   task <- Task$new(

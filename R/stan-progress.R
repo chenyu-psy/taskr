@@ -5,46 +5,90 @@
 # - Print a compact per-chain progress bar summary.
 
 extract_stan_progress_rows <- function(text) {
-  if (!is.character(text) || length(text) != 1 || is.na(text) || !nzchar(text)) {
-    return(data.frame(
+  empty_tab <- function() {
+    data.frame(
       chain = integer(),
       progress = numeric(),
       phase = character(),
       line = character(),
       stringsAsFactors = FALSE
-    ))
+    )
   }
+
+  detect_phase <- function(line, phase_hint = NA_character_) {
+    if (!is.na(phase_hint) && nzchar(trimws(phase_hint))) {
+      return(trimws(phase_hint))
+    }
+
+    if (grepl("warm[- ]?up", line, ignore.case = TRUE)) {
+      return("Warmup")
+    }
+    if (grepl("sampling", line, ignore.case = TRUE)) {
+      return("Sampling")
+    }
+    if (grepl("adapt", line, ignore.case = TRUE)) {
+      return("Adaptation")
+    }
+
+    NA_character_
+  }
+
+  capture_group <- function(groups, index) {
+    if (length(groups) >= index) {
+      return(groups[[index]])
+    }
+    NA_character_
+  }
+
+  if (!is.character(text) || length(text) != 1 || is.na(text) || !nzchar(text)) {
+    return(empty_tab())
+  }
+
+  # Real subprocess logs may contain:
+  # - carriage-return refresh (`\r`) instead of newlines,
+  # - ANSI escape sequences,
+  # - mixed prefixes from different runners.
+  # Normalize first so parser logic depends on the runtime stream shape,
+  # not on whether user code used cat/print/message.
+  text <- gsub("\u001b\\[[0-9;]*[A-Za-z]", "", text, perl = TRUE)
+  text <- gsub("\r", "\n", text, fixed = TRUE)
 
   lines <- unlist(strsplit(text, "\n", fixed = TRUE), use.names = FALSE)
   lines <- lines[nzchar(lines)]
   if (length(lines) == 0) {
-    return(data.frame(
-      chain = integer(),
-      progress = numeric(),
-      phase = character(),
-      line = character(),
-      stringsAsFactors = FALSE
-    ))
+    return(empty_tab())
   }
 
-  # CmdStan-style line example:
+  # CmdStan/CmdStanR/RStan iteration line with chain id.
+  # Examples:
   # "Chain 1 Iteration: 500 / 1000 [ 50%] (Warmup)"
-  cmdstan_pat <- "^\\s*Chain\\s+(\\d+)\\s+Iteration:\\s*(\\d+)\\s*/\\s*(\\d+)\\s*\\[\\s*(\\d+)%\\]"
-  # RStan-style fallback:
-  # "Chain 2: 60% warmup"
-  rstan_pat <- "^\\s*Chain\\s+(\\d+).*?(\\d+)%"
+  # "Chain 1: Iteration: 500 / 1000 [ 50%] (Warmup)"
+  # Also supports prefixed/wrapped lines, such as:
+  # "[1] \"Chain 1 Iteration: ...\""
+  # "INFO: Chain 1 Iteration: ..."
+  chain_iter_pat <- "Chain\\s*(\\d+)\\s*:?[[:space:]]*Iteration:\\s*(\\d+)\\s*/\\s*(\\d+)\\s*\\[\\s*(\\d+)%\\]\\s*(?:\\(([^\\)]*)\\))?"
+  # CmdStan single-chain iteration line (no chain prefix).
+  # Example:
+  # "Iteration: 100 / 2000 [  5%] (Warmup)"
+  iter_only_pat <- "Iteration:\\s*(\\d+)\\s*/\\s*(\\d+)\\s*\\[\\s*(\\d+)%\\]\\s*(?:\\(([^\\)]*)\\))?"
+  # RStan/CmdStan fallback lines with explicit chain + percent.
+  # Example:
+  # "Chain 2: 75% sampling"
+  chain_pct_pat <- "Chain\\s*(\\d+)\\s*:?.*?(\\d+)%"
+  # JAGS text progress bar fallback.
+  # Example:
+  # "|++++++++++++++++++++| 40%"
+  jags_text_bar_pat <- "\\|[^|]*\\|\\s*(\\d+)%"
 
   rows <- list()
   for (line in lines) {
-    m1 <- regexec(cmdstan_pat, line, perl = TRUE)
+    m1 <- regexec(chain_iter_pat, line, perl = TRUE)
     g1 <- regmatches(line, m1)[[1]]
 
     if (length(g1) > 0) {
       chain <- as.integer(g1[[2]])
       pct <- as.numeric(g1[[5]])
-      phase <- NA_character_
-      if (grepl("Warmup", line, fixed = TRUE)) phase <- "Warmup"
-      if (grepl("Sampling", line, fixed = TRUE)) phase <- "Sampling"
+      phase <- detect_phase(line, phase_hint = capture_group(g1, 6))
 
       rows[[length(rows) + 1L]] <- data.frame(
         chain = chain,
@@ -56,14 +100,12 @@ extract_stan_progress_rows <- function(text) {
       next
     }
 
-    m2 <- regexec(rstan_pat, line, perl = TRUE)
+    m2 <- regexec(iter_only_pat, line, perl = TRUE)
     g2 <- regmatches(line, m2)[[1]]
     if (length(g2) > 0) {
-      chain <- as.integer(g2[[2]])
-      pct <- as.numeric(g2[[3]])
-      phase <- NA_character_
-      if (grepl("warmup", line, ignore.case = TRUE)) phase <- "Warmup"
-      if (grepl("sampling", line, ignore.case = TRUE)) phase <- "Sampling"
+      chain <- 1L
+      pct <- as.numeric(g2[[4]])
+      phase <- detect_phase(line, phase_hint = capture_group(g2, 5))
 
       rows[[length(rows) + 1L]] <- data.frame(
         chain = chain,
@@ -72,17 +114,43 @@ extract_stan_progress_rows <- function(text) {
         line = line,
         stringsAsFactors = FALSE
       )
+      next
+    }
+
+    m3 <- regexec(chain_pct_pat, line, perl = TRUE)
+    g3 <- regmatches(line, m3)[[1]]
+    if (length(g3) > 0) {
+      chain <- as.integer(g3[[2]])
+      pct <- as.numeric(g3[[3]])
+      phase <- detect_phase(line, phase_hint = NA_character_)
+
+      rows[[length(rows) + 1L]] <- data.frame(
+        chain = chain,
+        progress = max(0, min(1, pct / 100)),
+        phase = phase,
+        line = line,
+        stringsAsFactors = FALSE
+      )
+      next
+    }
+
+    m4 <- regexec(jags_text_bar_pat, line, perl = TRUE)
+    g4 <- regmatches(line, m4)[[1]]
+    if (length(g4) > 0) {
+      pct <- as.numeric(g4[[2]])
+
+      rows[[length(rows) + 1L]] <- data.frame(
+        chain = 1L,
+        progress = max(0, min(1, pct / 100)),
+        phase = "Sampling",
+        line = line,
+        stringsAsFactors = FALSE
+      )
     }
   }
 
   if (length(rows) == 0) {
-    return(data.frame(
-      chain = integer(),
-      progress = numeric(),
-      phase = character(),
-      line = character(),
-      stringsAsFactors = FALSE
-    ))
+    return(empty_tab())
   }
 
   all_rows <- do.call(rbind, rows)

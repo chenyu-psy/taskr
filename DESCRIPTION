@@ -20,5 +20,6 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Suggests: 
     callr (>= 3.7.0),
+    shiny,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
