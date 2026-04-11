@@ -27,7 +27,12 @@ pkg_env <- new.env(parent = emptyenv())
   pkg_env$tempdir <- file.path(tempdir(), "taskr")
   pkg_env$active_tasks <- new.env(parent = emptyenv())
   pkg_env$scheduler <- NULL
+  pkg_env$dashboard_process <- NULL
+  pkg_env$dashboard_url <- NULL
+  pkg_env$dashboard_port <- NULL
+  pkg_env$dashboard_snapshot_path <- file.path(pkg_env$tempdir, "dashboard-snapshot.json")
   dir.create(pkg_env$tempdir, showWarnings = FALSE, recursive = TRUE)
+  try(write_dashboard_snapshot(), silent = TRUE)
 }
 
 #' Clean package state when `taskr` is unloaded.
@@ -54,6 +59,7 @@ pkg_env <- new.env(parent = emptyenv())
   }
 
   cleanup_active_tasks()
+  try(stop_dashboard_background(), silent = TRUE)
 
   if (!is.null(pkg_env$tempdir) && dir.exists(pkg_env$tempdir)) {
     unlink(pkg_env$tempdir, recursive = TRUE, force = TRUE)

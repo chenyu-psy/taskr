@@ -41,6 +41,7 @@ scheduler_tick_once <- function() {
 
   pkg_env$scheduler$scheduler_handle <- NULL
   pkg_env$scheduler <- tick(pkg_env$scheduler)
+  write_dashboard_snapshot()
 
   if (!scheduler_has_work(pkg_env$scheduler) || isTRUE(pkg_env$scheduler$scheduler_should_stop)) {
     stop_scheduler_internal()

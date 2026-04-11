@@ -73,6 +73,7 @@ init_queue <- function(max_concurrent = 1L) {
   }
 
   pkg_env$scheduler <- new_scheduler_state(max_concurrent = max_concurrent)
+  write_dashboard_snapshot()
   invisible(NULL)
 }
 
@@ -111,6 +112,8 @@ shutdown_queue <- function() {
     rm(list = ls(pkg_env$active_tasks, all.names = TRUE), envir = pkg_env$active_tasks)
   }
 
+  stop_dashboard_background()
+  write_dashboard_snapshot()
   clear_task_tempdir()
   invisible(NULL)
 }

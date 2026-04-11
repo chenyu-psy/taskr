@@ -67,6 +67,7 @@ cancel_task <- function(id_or_label) {
   if (!scheduler_has_work(pkg_env$scheduler)) {
     stop_scheduler_internal()
   }
+  write_dashboard_snapshot()
 
   invisible(NULL)
 }
@@ -101,5 +102,6 @@ clean_tasks <- function() {
   if (!scheduler_has_work(pkg_env$scheduler)) {
     stop_scheduler_internal()
   }
+  write_dashboard_snapshot()
   invisible(NULL)
 }

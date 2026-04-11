@@ -482,6 +482,8 @@ submit_task <- function(
   if (scheduler_has_work(pkg_env$scheduler)) {
     start_scheduler_internal()
   }
+  write_dashboard_snapshot()
+  maybe_auto_launch_dashboard()
   invisible(NULL)
 }
 
@@ -550,6 +552,8 @@ submit_call <- function(
   if (scheduler_has_work(pkg_env$scheduler)) {
     start_scheduler_internal()
   }
+  write_dashboard_snapshot()
+  maybe_auto_launch_dashboard()
   invisible(NULL)
 }
 

@@ -4,10 +4,14 @@
 \alias{queue_dashboard}
 \title{Open the Shiny Queue Dashboard}
 \usage{
-queue_dashboard()
+queue_dashboard(open_viewer = TRUE)
+}
+\arguments{
+\item{open_viewer}{Whether to open dashboard URL in IDE Viewer when
+available.}
 }
 \value{
-Invisibly returns the value from \code{shiny::runApp()}.
+Invisibly returns the dashboard URL.
 }
 \description{
 Purpose:
