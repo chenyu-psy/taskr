@@ -125,8 +125,6 @@ Track the progress and status of all submitted tasks:
 list_tasks()                     # view all tasks
 list_tasks(status = "running")   # filter by status
 list_tasks(label = "brm_model")  # filter by label
-
-queue_overview()                 # compact summary of queue state
 ```
 
 Retrieve logs and results:
@@ -168,17 +166,41 @@ submit_task(
 list_tasks(label = "long_job")
 ```
 
-### 2. Stan Progress Parsing
+### 2. Shiny Dashboard
 
-The `stan_progress` function parses CmdStan/RStan progress output from task
-logs and displays compact per-chain progress bars:
+The `queue_dashboard` function launches an interactive Shiny dashboard for
+real-time monitoring and management of background tasks:
 
 ```r
-stan_progress("brm_model")
+queue_dashboard()
 ```
 
-This prints per-chain text progress bars and returns a data frame with
-columns `chain`, `progress`, and `phase`.
+The dashboard provides a three-column layout:
+
+- **Running** — active tasks with live elapsed time, progress bars, and a
+  cancel button.
+- **Queued** — pending tasks showing priority and wait time.
+- **Finished** — completed, failed, and killed tasks with filterable status
+  toggles and a "Clean Finished" button.
+
+Features include:
+
+- Search tasks by label or ID.
+- Slot usage and completion metrics at a glance.
+- Expandable detail panels showing full metadata and the last 120 lines of
+  task logs.
+- Automatic Stan/JAGS chain progress bars — if a task emits CmdStan, RStan,
+  or JAGS progress output, the dashboard renders per-chain progress bars
+  with phase labels (Warmup / Sampling).
+- Generic progress bars for tasks that call `report_progress()`.
+- 1-second auto-refresh with scroll-position preservation.
+
+A ready-to-run demo that submits sample tasks and opens the dashboard is
+available at `inst/examples/shiny-loop-demo.R`:
+
+```r
+source(system.file("examples", "shiny-loop-demo.R", package = "taskr"))
+```
 
 # Notes
 
@@ -192,6 +214,8 @@ columns `chain`, `progress`, and `phase`.
 - `list_tasks()` returns a data frame with columns: `id`, `label`, `status`,
   `progress`, `message`, `elapsed`, `error`, `submit_time`, `start_time`,
   `end_time`.
+- The Shiny dashboard (`queue_dashboard()`) requires the `shiny` package,
+  which is listed as a suggested dependency.
 
 # Status
 
