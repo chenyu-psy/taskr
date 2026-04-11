@@ -546,6 +546,8 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       output$running_cards <- shiny::renderUI({
         expanded_task_id <- selected_id()
         running_tab <- filtered_running_tasks()
+        now_ts <- Sys.time()
+        fallback_wait_sec <- dashboard_initial_progress_wait_sec()
         progress_cache <- display_progress_cache()
         if (is.null(progress_cache)) {
           progress_cache <- list()
@@ -560,14 +562,21 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           task_progress <- as.numeric(task_row$progress[[1]])
           cached_progress <- suppressWarnings(as.numeric(progress_cache[[task_id]] %||% NA_real_))
 
-          parsed <- dashboard_parse_task_progress(task_id)
+          parsed <- if (isTRUE(read_only)) {
+            dashboard_parse_task_progress_from_row(task_row)
+          } else {
+            dashboard_parse_task_progress(task_id)
+          }
           chain_by_id[[task_id]] <- parsed$chain
 
           resolved <- resolve_dashboard_progress_fraction(
             parsed_fraction = parsed$fraction,
             task_fraction = task_progress,
             cached_fraction = cached_progress,
-            default_fraction = 0.5
+            start_time = task_row$start_time[[1]],
+            now = now_ts,
+            default_fraction = 0.5,
+            fallback_after_sec = fallback_wait_sec
           )
 
           progress_by_id[[task_id]] <- resolved

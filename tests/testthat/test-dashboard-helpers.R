@@ -350,6 +350,67 @@ test_that("resolve_dashboard_progress_fraction freezes prior progress on ambiguo
   )
 })
 
+test_that("resolve_dashboard_progress_fraction uses 1% before fallback timeout", {
+  resolve_dashboard_progress_fraction <- getFromNamespace("resolve_dashboard_progress_fraction", "taskr")
+  now <- as.POSIXct("2026-04-11 00:00:05", tz = "UTC")
+
+  expect_equal(
+    resolve_dashboard_progress_fraction(
+      parsed_fraction = NA_real_,
+      task_fraction = NA_real_,
+      cached_fraction = NA_real_,
+      start_time = now - 2,
+      now = now
+    ),
+    0.01
+  )
+})
+
+test_that("resolve_dashboard_progress_fraction falls back to 50% after timeout", {
+  resolve_dashboard_progress_fraction <- getFromNamespace("resolve_dashboard_progress_fraction", "taskr")
+  now <- as.POSIXct("2026-04-11 00:00:10", tz = "UTC")
+
+  expect_equal(
+    resolve_dashboard_progress_fraction(
+      parsed_fraction = NA_real_,
+      task_fraction = NA_real_,
+      cached_fraction = NA_real_,
+      start_time = now - 6,
+      now = now,
+      fallback_after_sec = 5
+    ),
+    0.5
+  )
+
+  expect_equal(
+    resolve_dashboard_progress_fraction(
+      parsed_fraction = NA_real_,
+      task_fraction = NA_real_,
+      cached_fraction = 0.01,
+      start_time = now - 6,
+      now = now,
+      fallback_after_sec = 5
+    ),
+    0.5
+  )
+})
+
+test_that("dashboard_initial_progress_wait_sec uses option with sane fallback", {
+  dashboard_initial_progress_wait_sec <- getFromNamespace("dashboard_initial_progress_wait_sec", "taskr")
+
+  old_opt <- getOption("taskr.dashboard.initial_progress_wait_sec")
+  on.exit(options(taskr.dashboard.initial_progress_wait_sec = old_opt), add = TRUE)
+
+  options(taskr.dashboard.initial_progress_wait_sec = NULL)
+  expect_equal(dashboard_initial_progress_wait_sec(), 3)
+
+  options(taskr.dashboard.initial_progress_wait_sec = 5)
+  expect_equal(dashboard_initial_progress_wait_sec(), 5)
+
+  options(taskr.dashboard.initial_progress_wait_sec = -1)
+  expect_equal(dashboard_initial_progress_wait_sec(), 3)
+})
+
 test_that("dashboard_parse_task_progress returns generic parsed fraction when no chain rows", {
   dashboard_parse_task_progress <- getFromNamespace("dashboard_parse_task_progress", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")

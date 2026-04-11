@@ -677,7 +677,15 @@ resolve_dashboard_progress_fraction <- function(
     parsed_fraction,
     task_fraction = NA_real_,
     cached_fraction = NA_real_,
-    default_fraction = 0.5) {
+    default_fraction = 0.5,
+    initial_fraction = 0.01,
+    start_time = NA,
+    now = Sys.time(),
+    fallback_after_sec = 3) {
+  elapsed_sec <- suppressWarnings(as.numeric(difftime(now, start_time, units = "secs")))
+  has_elapsed <- is.finite(elapsed_sec) && !is.na(elapsed_sec)
+  use_fallback <- isTRUE(has_elapsed && elapsed_sec >= as.numeric(fallback_after_sec))
+
   if (!is.na(parsed_fraction) && is.finite(parsed_fraction)) {
     return(max(0, min(1, as.numeric(parsed_fraction))))
   }
@@ -685,11 +693,35 @@ resolve_dashboard_progress_fraction <- function(
     return(max(0, min(1, as.numeric(task_fraction))))
   }
   if (!is.na(cached_fraction) && is.finite(cached_fraction)) {
-    return(max(0, min(1, as.numeric(cached_fraction))))
+    cached <- max(0, min(1, as.numeric(cached_fraction)))
+    if (cached > as.numeric(initial_fraction)) {
+      return(cached)
+    }
+    if (!use_fallback) {
+      return(cached)
+    }
+    return(max(0, min(1, as.numeric(default_fraction))))
+  }
+
+  if (!use_fallback) {
+    return(max(0, min(1, as.numeric(initial_fraction))))
   }
 
   max(0, min(1, as.numeric(default_fraction)))
 }
+
+# Resolve how long dashboard should keep the initial 1% placeholder before
+# falling back to 50% when no progress is identifiable.
+# Reads option `taskr.dashboard.initial_progress_wait_sec` with default `3`.
+dashboard_initial_progress_wait_sec <- function() {
+  wait_sec <- getOption("taskr.dashboard.initial_progress_wait_sec", 3)
+  wait_sec <- suppressWarnings(as.numeric(wait_sec))
+  if (length(wait_sec) != 1 || is.na(wait_sec) || !is.finite(wait_sec) || wait_sec < 0) {
+    return(3)
+  }
+  wait_sec
+}
+
 
 # Parse one task's logs for Dashboard display.
 # Returns chain-level progress when available; otherwise a single fraction.
@@ -790,6 +822,9 @@ dashboard_stan_chain_progress_from_row <- function(task) {
   text <- paste(task$stdout[[1]] %||% "", task$stderr[[1]] %||% "", sep = "\n")
   tab <- extract_stan_progress_rows(text)
   if (nrow(tab) == 0) {
+    tab <- extract_chain_progress_rows(text)
+  }
+  if (nrow(tab) == 0) {
     return(data.frame(
       chain = integer(),
       progress = numeric(),
@@ -799,4 +834,39 @@ dashboard_stan_chain_progress_from_row <- function(task) {
   }
 
   tab[, c("chain", "progress", "phase"), drop = FALSE]
+}
+
+# Parse task progress directly from one task row.
+# Args:
+# - task: One-row data.frame containing `stdout` and `stderr`.
+# Returns:
+# - List with `chain` data.frame and scalar `fraction`.
+dashboard_parse_task_progress_from_row <- function(task) {
+  out <- list(
+    chain = data.frame(
+      chain = integer(),
+      progress = numeric(),
+      phase = character(),
+      stringsAsFactors = FALSE
+    ),
+    fraction = NA_real_
+  )
+
+  if (is.null(task) || nrow(task) == 0) {
+    return(out)
+  }
+
+  text <- paste(task$stdout[[1]] %||% "", task$stderr[[1]] %||% "", sep = "\n")
+  chain_tab <- extract_stan_progress_rows(text)
+  if (nrow(chain_tab) == 0) {
+    chain_tab <- extract_chain_progress_rows(text)
+  }
+
+  if (nrow(chain_tab) > 0) {
+    out$chain <- chain_tab[, c("chain", "progress", "phase"), drop = FALSE]
+    return(out)
+  }
+
+  out$fraction <- parse_generic_progress_fraction(text)
+  out
 }

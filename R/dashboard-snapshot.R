@@ -94,7 +94,10 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
       return(as.POSIXct(x, origin = "1970-01-01", tz = "UTC"))
     }
 
-    out <- suppressWarnings(as.POSIXct(as.character(x), tz = "UTC"))
+    # Snapshot JSON stores POSIXct as plain wall-clock strings without timezone.
+    # Parse back in local timezone so elapsed/start labels remain consistent
+    # between writer and reader processes on the same machine.
+    out <- suppressWarnings(as.POSIXct(as.character(x), tz = ""))
     if (length(out) == 0) {
       out <- rep(as.POSIXct(NA), n)
     }

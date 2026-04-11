@@ -45,3 +45,46 @@ test_that("dashboard snapshot round-trip keeps task rows readable", {
   expect_s3_class(snap$tasks$submit_time, "POSIXct")
   expect_s3_class(snap$tasks$start_time, "POSIXct")
 })
+
+test_that("dashboard snapshot round-trip preserves local elapsed timing", {
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
+  write_dashboard_snapshot <- getFromNamespace("write_dashboard_snapshot", "taskr")
+  read_dashboard_snapshot <- getFromNamespace("read_dashboard_snapshot", "taskr")
+
+  old_scheduler <- pkg_env$scheduler
+  old_snapshot_path <- pkg_env$dashboard_snapshot_path
+  on.exit({
+    pkg_env$scheduler <- old_scheduler
+    pkg_env$dashboard_snapshot_path <- old_snapshot_path
+  }, add = TRUE)
+
+  pkg_env$dashboard_snapshot_path <- tempfile(fileext = ".json")
+  now <- as.POSIXct("2026-04-11 00:00:00", tz = "America/Chicago")
+
+  item <- list(
+    id = "task_local_001",
+    label = "demo_local",
+    status = "running",
+    priority = 1L,
+    resources = list(slots = 1L),
+    progress = 0.4,
+    message = "running",
+    error = "",
+    submit_time = now - 20,
+    start_time = now - 10,
+    end_time = as.POSIXct(NA),
+    stdout_buffer = "",
+    stderr_buffer = ""
+  )
+
+  state <- new_scheduler_state(max_concurrent = 1L)
+  state$running <- list(task_local_001 = item)
+  pkg_env$scheduler <- state
+
+  write_dashboard_snapshot(now = now)
+  snap <- read_dashboard_snapshot()
+  tab <- getFromNamespace("add_dashboard_derived_columns", "taskr")(snap$tasks, now = now)
+
+  expect_equal(tab$running_elapsed_sec[[1]], 10, tolerance = 1e-6)
+})
