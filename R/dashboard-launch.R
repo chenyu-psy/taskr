@@ -118,9 +118,11 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
   }
 
   snapshot_path <- dashboard_snapshot_path()
+  command_path <- dashboard_command_path()
   if (!file.exists(snapshot_path)) {
     write_dashboard_snapshot()
   }
+  ensure_dashboard_command_file(command_path)
 
   port <- dashboard_pick_port()
   url <- sprintf("http://127.0.0.1:%d", port)
@@ -128,7 +130,7 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
   use_pkgload <- nzchar(pkg_path) && file.exists(file.path(pkg_path, "DESCRIPTION"))
 
   proc <- callr::r_bg(
-    func = function(port, pkg_path, use_pkgload, snapshot_path) {
+    func = function(port, pkg_path, use_pkgload, snapshot_path, command_path) {
       options(shiny.launch.browser = FALSE)
 
       if (isTRUE(use_pkgload) &&
@@ -148,7 +150,7 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
 
       app_factory <- getFromNamespace("queue_dashboard_app", "taskr")
       shiny::runApp(
-        app_factory(data_mode = "snapshot", snapshot_path = snapshot_path),
+        app_factory(data_mode = "snapshot", snapshot_path = snapshot_path, command_path = command_path),
         host = "127.0.0.1",
         port = as.integer(port),
         launch.browser = FALSE,
@@ -159,7 +161,8 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
       port = port,
       pkg_path = pkg_path,
       use_pkgload = use_pkgload,
-      snapshot_path = snapshot_path
+      snapshot_path = snapshot_path,
+      command_path = command_path
     ),
     stdout = "|",
     stderr = "|",

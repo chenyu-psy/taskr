@@ -414,13 +414,20 @@ queue_dashboard_ui <- function() {
   )
 }
 
-queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path = NULL) {
+queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path = NULL, command_path = NULL) {
   if (!requireNamespace("shiny", quietly = TRUE)) {
     stop("`queue_dashboard()` requires the `shiny` package. Install it with install.packages('shiny').")
   }
 
   data_mode <- match.arg(data_mode)
   read_only <- identical(data_mode, "snapshot")
+  control_via_commands <- isTRUE(read_only) &&
+    !is.null(command_path) &&
+    is.character(command_path) &&
+    length(command_path) == 1 &&
+    !is.na(command_path) &&
+    nzchar(command_path)
+  can_control <- !isTRUE(read_only) || isTRUE(control_via_commands)
   if (!isTRUE(read_only)) {
     ensure_queue_initialized()
   }
@@ -435,6 +442,8 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       observed_cancel_ids <- shiny::reactiveVal(character())
       done_filter_status <- shiny::reactiveVal("done")
       display_progress_cache <- shiny::reactiveVal(list())
+      pending_cancel_ids <- shiny::reactiveVal(character())
+      action_cooldown <- shiny::reactiveVal(list())
       click_counts <- new.env(parent = emptyenv())
       click_counts$values <- list()
       read_snapshot_tasks <- function() {
@@ -551,7 +560,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       })
 
       output$summary_actions <- shiny::renderUI({
-        if (isTRUE(read_only)) {
+        if (!isTRUE(can_control)) {
           return(NULL)
         }
 
@@ -613,9 +622,15 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           renderer = function(task) {
             task_id <- as.character(task$id[[1]])
             running_task_card_ui(
-              task,
+              {
+                task_id <- as.character(task$id[[1]])
+                if (task_id %in% pending_cancel_ids() && task$status[[1]] %in% c("running", "queued")) {
+                  task$status[[1]] <- "canceling"
+                }
+                task
+              },
               expanded = identical(task$id, expanded_task_id),
-              allow_cancel = !isTRUE(read_only),
+              allow_cancel = isTRUE(can_control),
               chain_tab = chain_by_id[[task_id]],
               progress_ratio = progress_by_id[[task_id]]
             )
@@ -630,9 +645,15 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           title = "Queued",
           renderer = function(task) {
             queued_task_card_ui(
-              task,
+              {
+                task_id <- as.character(task$id[[1]])
+                if (task_id %in% pending_cancel_ids() && task$status[[1]] %in% c("running", "queued")) {
+                  task$status[[1]] <- "canceling"
+                }
+                task
+              },
               expanded = identical(task$id, expanded_task_id),
-              allow_cancel = !isTRUE(read_only)
+              allow_cancel = isTRUE(can_control)
             )
           }
         )
@@ -651,7 +672,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           done_filtered,
           title = "Finished",
           renderer = function(task) done_task_card_ui(task, expanded = identical(task$id, expanded_task_id)),
-          header_right = if (!isTRUE(read_only)) {
+          header_right = if (isTRUE(can_control)) {
             shiny::actionButton("clean_finished", "Clean Finished", class = "btn btn-warning btn-sm")
           },
           subheader = done_filter_controls_ui(
@@ -674,6 +695,18 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       shiny::observeEvent(input$done_filter_killed, {
         done_filter_status("killed")
       }, ignoreInit = TRUE)
+
+      can_issue_action <- function(key, cooldown_sec = 5) {
+        now_num <- as.numeric(Sys.time())
+        tab <- action_cooldown()
+        last_num <- suppressWarnings(as.numeric(tab[[key]] %||% NA_real_))
+        if (!is.na(last_num) && is.finite(last_num) && (now_num - last_num) < as.numeric(cooldown_sec)) {
+          return(FALSE)
+        }
+        tab[[key]] <- now_num
+        action_cooldown(tab)
+        TRUE
+      }
 
       observe_register_buttons <- function(prefix, ids, ids_store, handler) {
         known <- ids_store()
@@ -730,7 +763,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 
         observe_register_buttons(
           prefix = "cancel",
-          ids = if (isTRUE(read_only)) character() else ids,
+          ids = if (isTRUE(can_control)) ids else character(),
           ids_store = observed_cancel_ids,
           handler = function(task_id) {
             current <- state_tasks()
@@ -756,15 +789,24 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
             }
 
             if (identical(row$status[[1]], "queued")) {
-              tryCatch(
-                {
-                  cancel_task(task_id)
-                  shiny::showNotification("Queued task canceled.", type = "message")
-                },
-                error = function(e) {
-                  shiny::showNotification(conditionMessage(e), type = "error")
-                }
-              )
+              if (!can_issue_action(paste0("cancel::", task_id))) {
+                return(invisible(NULL))
+              }
+
+              if (isTRUE(control_via_commands)) {
+                try(dashboard_enqueue_command("cancel_task", task_id = task_id, path = command_path), silent = TRUE)
+                pending_cancel_ids(unique(c(pending_cancel_ids(), task_id)))
+              } else {
+                tryCatch(
+                  {
+                    cancel_task(task_id)
+                    shiny::showNotification("Queued task canceled.", type = "message")
+                  },
+                  error = function(e) {
+                    shiny::showNotification(conditionMessage(e), type = "error")
+                  }
+                )
+              }
             }
             invisible(NULL)
           }
@@ -774,7 +816,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       })
 
       shiny::observeEvent(input$confirm_running_cancel, {
-        if (isTRUE(read_only)) {
+        if (!isTRUE(can_control)) {
           return(invisible(NULL))
         }
         task_id <- pending_running_cancel()
@@ -783,21 +825,31 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           return(invisible(NULL))
         }
 
-        tryCatch(
-          {
-            cancel_task(task_id)
-            shiny::showNotification("Running task canceled.", type = "message")
-          },
-          error = function(e) {
-            shiny::showNotification(conditionMessage(e), type = "error")
-          }
-        )
+        if (!can_issue_action(paste0("cancel::", task_id))) {
+          pending_running_cancel(NULL)
+          return(invisible(NULL))
+        }
+
+        if (isTRUE(control_via_commands)) {
+          try(dashboard_enqueue_command("cancel_task", task_id = task_id, path = command_path), silent = TRUE)
+          pending_cancel_ids(unique(c(pending_cancel_ids(), task_id)))
+        } else {
+          tryCatch(
+            {
+              cancel_task(task_id)
+              shiny::showNotification("Running task canceled.", type = "message")
+            },
+            error = function(e) {
+              shiny::showNotification(conditionMessage(e), type = "error")
+            }
+          )
+        }
         pending_running_cancel(NULL)
         invisible(NULL)
       }, ignoreInit = TRUE)
 
       shiny::observeEvent(input$clean_finished, {
-        if (isTRUE(read_only)) {
+        if (!isTRUE(can_control)) {
           return(invisible(NULL))
         }
         tryCatch(
@@ -814,7 +866,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       }, ignoreInit = TRUE)
 
       shiny::observeEvent(input$clear_all_tasks, {
-        if (isTRUE(read_only)) {
+        if (!isTRUE(can_control)) {
           return(invisible(NULL))
         }
 
@@ -830,32 +882,51 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       }, ignoreInit = TRUE)
 
       shiny::observeEvent(input$confirm_clear_all_tasks, {
-        if (isTRUE(read_only)) {
+        if (!isTRUE(can_control)) {
           return(invisible(NULL))
         }
 
         shiny::removeModal()
-        slots <- as.integer(pkg_env$scheduler$capacity$slots %||% 1L)
-        if (is.na(slots) || slots < 1L) {
-          slots <- 1L
+        if (!can_issue_action("clear_all")) {
+          return(invisible(NULL))
         }
 
-        tryCatch(
-          {
-            shutdown_queue()
-            init_queue(max_concurrent = slots)
-            display_progress_cache(list())
-            selected_id(NULL)
-            shiny::showNotification("All tasks cleared.", type = "message")
-          },
-          error = function(e) {
-            shiny::showNotification(conditionMessage(e), type = "error")
+        if (isTRUE(control_via_commands)) {
+          all_tab <- state_tasks()
+          active_ids <- all_tab$id[all_tab$status %in% c("running", "queued")]
+          if (length(active_ids) > 0) {
+            pending_cancel_ids(unique(c(pending_cancel_ids(), active_ids)))
           }
-        )
+          try(dashboard_enqueue_command("clear_all", path = command_path), silent = TRUE)
+        } else {
+          slots <- as.integer(pkg_env$scheduler$capacity$slots %||% 1L)
+          if (is.na(slots) || slots < 1L) {
+            slots <- 1L
+          }
+
+          tryCatch(
+            {
+              shutdown_queue()
+              init_queue(max_concurrent = slots)
+              display_progress_cache(list())
+              selected_id(NULL)
+              shiny::showNotification("All tasks cleared.", type = "message")
+            },
+            error = function(e) {
+              shiny::showNotification(conditionMessage(e), type = "error")
+            }
+          )
+        }
 
         refresh_nonce(refresh_nonce() + 1L)
         invisible(NULL)
       }, ignoreInit = TRUE)
+
+      shiny::observe({
+        all_tab <- state_tasks()
+        active_ids <- all_tab$id[all_tab$status %in% c("running", "queued")]
+        pending_cancel_ids(intersect(pending_cancel_ids(), active_ids))
+      })
 
       shiny::observe({
         # Keep expanded id valid when data updates.
@@ -892,9 +963,6 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 #' - Provide lightweight control actions (`cancel_task`, `clean_tasks`) without
 #'   changing the existing queue API.
 #'
-#' @param mode Dashboard run mode. `"live"` runs in the current R session and
-#'   keeps task control buttons enabled. `"background"` launches a read-only
-#'   dashboard process backed by JSON snapshots.
 #' @param open_viewer Whether to open dashboard URL in IDE Viewer when
 #'   available.
 #' @return Invisibly returns the dashboard URL.
@@ -902,24 +970,14 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 #' \dontrun{
 #' init_queue(max_concurrent = 2)
 #' queue_dashboard()
-#' queue_dashboard(mode = "background")
 #' }
 #' @export
-queue_dashboard <- function(mode = c("live", "background"), open_viewer = TRUE) {
+queue_dashboard <- function(open_viewer = TRUE) {
   if (!requireNamespace("shiny", quietly = TRUE)) {
     stop("`queue_dashboard()` requires the `shiny` package. Install it with install.packages('shiny').")
   }
 
-  mode <- match.arg(mode)
   ensure_queue_initialized()
-
-  if (identical(mode, "background")) {
-    write_dashboard_snapshot()
-    return(invisible(
-      launch_dashboard_background(open_viewer = open_viewer, announce = TRUE, focus_existing = TRUE)
-    ))
-  }
-
-  app <- queue_dashboard_app(data_mode = "live")
-  invisible(shiny::runApp(app, display.mode = "normal", launch.browser = isTRUE(open_viewer) && interactive()))
+  write_dashboard_snapshot()
+  invisible(launch_dashboard_background(open_viewer = open_viewer, announce = TRUE, focus_existing = TRUE))
 }

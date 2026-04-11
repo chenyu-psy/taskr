@@ -31,8 +31,10 @@ pkg_env <- new.env(parent = emptyenv())
   pkg_env$dashboard_url <- NULL
   pkg_env$dashboard_port <- NULL
   pkg_env$dashboard_snapshot_path <- file.path(pkg_env$tempdir, "dashboard-snapshot.json")
+  pkg_env$dashboard_command_path <- file.path(pkg_env$tempdir, "dashboard-commands.jsonl")
   dir.create(pkg_env$tempdir, showWarnings = FALSE, recursive = TRUE)
   try(write_dashboard_snapshot(), silent = TRUE)
+  try(ensure_dashboard_command_file(), silent = TRUE)
 }
 
 #' Clean package state when `taskr` is unloaded.

@@ -348,6 +348,7 @@ dashboard_summary_metrics <- function(tab, max_slots = 1L) {
 status_badge_class <- function(status) {
   switch(
     status,
+    canceling = "status-failed",
     running = "status-running",
     queued = "status-queued",
     done = "status-done",

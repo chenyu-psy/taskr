@@ -39,6 +39,7 @@ scheduler_tick_once <- function() {
     return(invisible(NULL))
   }
 
+  try(process_dashboard_commands(), silent = TRUE)
   pkg_env$scheduler$scheduler_handle <- NULL
   pkg_env$scheduler <- tick(pkg_env$scheduler)
   write_dashboard_snapshot()
