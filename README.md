@@ -120,7 +120,9 @@ configured capacity is currently occupied, and completion progress shows how
 many submitted tasks have reached a terminal state. The search box filters task
 cards by id or label across the dashboard.
 
-![Summary panel](inst/images/dashboard-panels/summary-panel.jpg)
+<p align="center">
+  <img src="inst/images/dashboard-panels/summary-panel.jpg" alt="Summary panel" width="50%">
+</p>
 
 ## Running Panel
 
@@ -128,7 +130,9 @@ The running panel lists tasks that are currently executing. Each card reports
 elapsed time, current status, and the latest progress signal when available.
 Task details expand inline, and running tasks can be cancelled from the card.
 
-![Running panel](inst/images/dashboard-panels/running-panel.jpg)
+<p align="center">
+  <img src="inst/images/dashboard-panels/running-panel.jpg" alt="Running panel" width="50%">
+</p>
 
 ## Queued Panel
 
@@ -136,7 +140,9 @@ The queued panel lists tasks that are waiting for available slots. Tasks are
 ordered by priority and submit time, which makes it easier to understand why a
 task has not started yet.
 
-![Queued panel](inst/images/dashboard-panels/queued-panel.jpg)
+<p align="center">
+  <img src="inst/images/dashboard-panels/queued-panel.jpg" alt="Queued panel" width="50%">
+</p>
 
 ## Finished Panel
 
@@ -144,7 +150,9 @@ The finished panel keeps completed, failed, and cancelled tasks together. Status
 filters help focus on failures or cancellations, and cleanup actions remove
 finished records once they are no longer needed.
 
-![Finished panel](inst/images/dashboard-panels/finished-panel.jpg)
+<p align="center">
+  <img src="inst/images/dashboard-panels/finished-panel.jpg" alt="Finished panel" width="50%">
+</p>
 
 # Status
 
