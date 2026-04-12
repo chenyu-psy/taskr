@@ -20,12 +20,12 @@ delete_task_result_file <- function(item) {
 #'
 #' Purpose:
 #' - Remove a queued task or kill a running task.
-#' - Mark canceled tasks as `killed` in terminal records.
+#' - Mark canceled tasks as `cancelled` in terminal records.
 #'
 #' @param id_or_label Task id or label used to identify one task.
 #' @return Invisibly returns `NULL`.
 #' @examples
-#' init_queue(max_concurrent = 1)
+#' init_queue(max_slots = 1)
 #' # cancel_task("task_001")
 #' @export
 cancel_task <- function(id_or_label) {
@@ -43,7 +43,7 @@ cancel_task <- function(id_or_label) {
   item <- matched$item
   now <- Sys.time()
 
-  if (identical(matched$bucket, "done")) {
+  if (identical(matched$bucket, "finished")) {
     warning("Task is already terminal; no cancellation was applied.")
     return(invisible(NULL))
   }
@@ -59,13 +59,13 @@ cancel_task <- function(id_or_label) {
     pkg_env$scheduler$running[[run_id]] <- NULL
   }
 
-  item$status <- "killed"
+  item$status <- "cancelled"
   item$end_time <- now
   item$error <- item$error %||% "Task canceled by user."
-  pkg_env$scheduler$done[[item$id]] <- item
+  pkg_env$scheduler$finished[[item$id]] <- item
   delete_task_result_file(item)
   if (!scheduler_has_work(pkg_env$scheduler)) {
-    stop_scheduler_internal()
+    stop_scheduler()
   }
   write_dashboard_snapshot()
 
@@ -75,12 +75,12 @@ cancel_task <- function(id_or_label) {
 #' Clean Terminal Task Records and Temporary Files
 #'
 #' Purpose:
-#' - Remove done/failed/killed tasks from scheduler memory.
+#' - Remove completed/failed/cancelled tasks from scheduler memory.
 #' - Delete their result files when present.
 #'
 #' @return Invisibly returns `NULL`.
 #' @examples
-#' init_queue(max_concurrent = 1)
+#' init_queue(max_slots = 1)
 #' clean_tasks()
 #' @export
 clean_tasks <- function() {
@@ -88,19 +88,19 @@ clean_tasks <- function() {
     return(invisible(NULL))
   }
 
-  done_items <- pkg_env$scheduler$done %||% list()
-  if (length(done_items) == 0) {
+  finished_items <- pkg_env$scheduler$finished %||% list()
+  if (length(finished_items) == 0) {
     return(invisible(NULL))
   }
 
-  for (item in done_items) {
+  for (item in finished_items) {
     delete_task_result_file(item)
     pkg_env$scheduler <- remove_label_index_entry(pkg_env$scheduler, item)
   }
 
-  pkg_env$scheduler$done <- list()
+  pkg_env$scheduler$finished <- list()
   if (!scheduler_has_work(pkg_env$scheduler)) {
-    stop_scheduler_internal()
+    stop_scheduler()
   }
   write_dashboard_snapshot()
   invisible(NULL)

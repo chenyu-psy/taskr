@@ -1,4 +1,4 @@
-make_later_scripted_task <- function(status_seq = c("running", "done")) {
+make_later_scripted_task <- function(status_seq = c("running", "completed")) {
   state <- new.env(parent = emptyenv())
   state$i <- 1L
 
@@ -27,18 +27,18 @@ wait_for_later_idle <- function(timeout = 5) {
   }
 }
 
-test_that("start_scheduler_internal schedules when work exists", {
+test_that("start_scheduler schedules when work exists", {
   skip_if_not_installed("later")
-  start_scheduler_internal <- getFromNamespace("start_scheduler_internal", "taskr")
-  stop_scheduler_internal <- getFromNamespace("stop_scheduler_internal", "taskr")
+  start_scheduler <- getFromNamespace("start_scheduler", "taskr")
+  stop_scheduler <- getFromNamespace("stop_scheduler", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$queue <- list(
     list(
       id = "task_later_1",
@@ -48,44 +48,44 @@ test_that("start_scheduler_internal schedules when work exists", {
       submit_time = Sys.time(),
       status = "queued",
       output = "none",
-      start_task = function(item) make_later_scripted_task(c("running", "done"))
+      start_task = function(item) make_later_scripted_task(c("running", "completed"))
     )
   )
 
-  started <- start_scheduler_internal(interval = 0.01)
+  started <- start_scheduler(interval = 0.01)
   expect_true(started)
   expect_true(is.function(pkg_env$scheduler$scheduler_handle))
 
   wait_for_later_idle(timeout = 0.5)
-  expect_true("task_later_1" %in% names(pkg_env$scheduler$done))
+  expect_true("task_later_1" %in% names(pkg_env$scheduler$finished))
   expect_null(pkg_env$scheduler$scheduler_handle)
 
-  stop_scheduler_internal()
+  stop_scheduler()
 })
 
-test_that("start_scheduler_internal does not start when no work", {
+test_that("start_scheduler does not start when no work", {
   skip_if_not_installed("later")
-  start_scheduler_internal <- getFromNamespace("start_scheduler_internal", "taskr")
+  start_scheduler <- getFromNamespace("start_scheduler", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
-  expect_false(start_scheduler_internal(interval = 0.01))
+  expect_false(start_scheduler(interval = 0.01))
 })
 
-test_that("stop_scheduler_internal clears scheduled handle", {
+test_that("stop_scheduler clears scheduled handle", {
   skip_if_not_installed("later")
-  start_scheduler_internal <- getFromNamespace("start_scheduler_internal", "taskr")
-  stop_scheduler_internal <- getFromNamespace("stop_scheduler_internal", "taskr")
+  start_scheduler <- getFromNamespace("start_scheduler", "taskr")
+  stop_scheduler <- getFromNamespace("stop_scheduler", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$queue <- list(
     list(
       id = "task_later_2",
@@ -99,9 +99,9 @@ test_that("stop_scheduler_internal clears scheduled handle", {
     )
   )
 
-  start_scheduler_internal(interval = 0.1)
+  start_scheduler(interval = 0.1)
   expect_true(is.function(pkg_env$scheduler$scheduler_handle))
 
-  stop_scheduler_internal()
+  stop_scheduler()
   expect_null(pkg_env$scheduler$scheduler_handle)
 })

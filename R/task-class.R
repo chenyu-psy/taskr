@@ -5,7 +5,7 @@
 # process-like object. Later steps will connect it to real `callr` sessions.
 #
 # The class is intentionally not exported. Users should interact with tasks
-# through package functions such as `submit_task()` and `list_tasks()`.
+# through package functions such as `submit_code()` and `get_task_overview()`.
 Task <- R6::R6Class(
   classname = "Task",
   public = list(
@@ -44,7 +44,7 @@ Task <- R6::R6Class(
         stop("`id` must be a single non-empty character string.")
       }
 
-      allowed_status <- c("queued", "running", "done", "failed", "killed")
+      allowed_status <- c("queued", "running", "completed", "failed", "cancelled")
       if (!is.character(status) || length(status) != 1 || is.na(status)) {
         stop("`status` must be a single non-missing character string.")
       }
@@ -67,7 +67,7 @@ Task <- R6::R6Class(
         self$started_at <- self$created_at
       }
 
-      if (status %in% c("done", "failed", "killed")) {
+      if (status %in% c("completed", "failed", "cancelled")) {
         self$finished_at <- self$created_at
       }
 
@@ -89,7 +89,7 @@ Task <- R6::R6Class(
 # Assumptions and side effects:
 # - Updates `started_at` when a task first enters `running`.
 # - Updates `finished_at` when a task enters a terminal state.
-      allowed_status <- c("queued", "running", "done", "failed", "killed")
+      allowed_status <- c("queued", "running", "completed", "failed", "cancelled")
       if (!is.character(status) || length(status) != 1 || is.na(status)) {
         stop("`status` must be a single non-missing character string.")
       }
@@ -103,7 +103,7 @@ Task <- R6::R6Class(
         self$started_at <- Sys.time()
       }
 
-      if (status %in% c("done", "failed", "killed")) {
+      if (status %in% c("completed", "failed", "cancelled")) {
         self$finished_at <- Sys.time()
       }
 
@@ -119,7 +119,7 @@ Task <- R6::R6Class(
 #
 # Returns:
 # - `character(1)`: Current task status.
-      if (identical(self$status_value, "killed")) {
+      if (identical(self$status_value, "cancelled")) {
         return(self$status_value)
       }
 
@@ -143,7 +143,7 @@ Task <- R6::R6Class(
           self$set_status("failed")
           unregister_active_task(self$id)
         } else if (!is.null(self$result_path) && file.exists(self$result_path)) {
-          self$set_status("done")
+          self$set_status("completed")
           unregister_active_task(self$id)
         } else {
           self$error <- task_process_failure_message(self)
@@ -157,7 +157,7 @@ Task <- R6::R6Class(
       if (identical(self$status_value, "running") && !is.null(session_state) &&
           session_state %in% c("idle", "finished")) {
         if (!is.null(self$result_path) && file.exists(self$result_path)) {
-          self$set_status("done")
+          self$set_status("completed")
           unregister_active_task(self$id)
         } else {
           if (is.null(self$error)) {
@@ -176,7 +176,7 @@ Task <- R6::R6Class(
 
       if (identical(self$status_value, "running")) {
         if (!is.null(self$result_path) && file.exists(self$result_path)) {
-          self$set_status("done")
+          self$set_status("completed")
           unregister_active_task(self$id)
         } else {
           self$error <- task_process_failure_message(self)
@@ -264,7 +264,7 @@ Task <- R6::R6Class(
     },
 
     kill = function() {
-# Stop the underlying process and mark the task as killed.
+# Stop the underlying process and mark the task as cancelled.
 #
 # Purpose:
 # - Provide one place where queue code can terminate a running task.
@@ -282,7 +282,7 @@ Task <- R6::R6Class(
         try(self$process$close(), silent = TRUE)
       }
 
-      self$set_status("killed")
+      self$set_status("cancelled")
       unregister_active_task(self$id)
     },
 

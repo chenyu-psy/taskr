@@ -212,7 +212,7 @@ test_that("Task kill stops a running child process before it writes a result", {
   task$kill()
 
   expect_false(task$is_alive())
-  expect_equal(task$status(), "killed")
+  expect_equal(task$status(), "cancelled")
   expect_false(file.exists(result_path))
 
   close_task_process(task)

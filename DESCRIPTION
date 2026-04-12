@@ -1,6 +1,6 @@
 Package: taskr
-Title: Background Tasks and Scheduling for R
-Version: 0.1.0
+Title: Background Task Queue with Shiny Dashboard for R
+Version: 0.2.0
 Authors@R: 
     person(given = "Chenyu",
            family = "Li",
@@ -8,20 +8,20 @@ Authors@R:
            email = "chenyu.li.hz@gmail.com")
 Description: Run long R tasks in background processes and manage them through
     a simple in-memory queue. The package supports explicit task submission,
-    progress reporting, and lightweight scheduling without relying on any
-    specific IDE or application domain.
+    progress reporting, lightweight scheduling, and an optional Shiny dashboard
+    without relying on any specific IDE or application domain.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Imports:
+    callr (>= 3.7.0),
     jsonlite,
     later,
-    R6
+    R6,
+    shiny
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Suggests: 
-    callr (>= 3.7.0),
     httpuv,
     pkgload,
-    shiny,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3

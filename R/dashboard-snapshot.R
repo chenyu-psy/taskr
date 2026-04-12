@@ -21,7 +21,7 @@ write_dashboard_snapshot <- function(now = Sys.time()) {
 
   payload <- list(
     generated_at = format(now, "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
-    max_concurrent = as.integer(state$capacity$slots %||% 1L),
+    max_slots = as.integer(state$capacity$slots %||% 1L),
     tasks = tab
   )
 
@@ -34,7 +34,7 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
   if (!is.character(path) || length(path) != 1 || is.na(path) || !nzchar(path) || !file.exists(path)) {
     return(list(
       generated_at = NA_character_,
-      max_concurrent = 1L,
+      max_slots = 1L,
       tasks = empty_dashboard_table()
     ))
   }
@@ -47,7 +47,7 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
   if (is.null(payload)) {
     return(list(
       generated_at = NA_character_,
-      max_concurrent = 1L,
+      max_slots = 1L,
       tasks = empty_dashboard_table()
     ))
   }
@@ -94,7 +94,10 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
       return(as.POSIXct(x, origin = "1970-01-01", tz = "UTC"))
     }
 
-    out <- suppressWarnings(as.POSIXct(as.character(x), tz = "UTC"))
+    # Snapshot JSON stores POSIXct as plain wall-clock strings without timezone.
+    # Parse back in local timezone so elapsed/start labels remain consistent
+    # between writer and reader processes on the same machine.
+    out <- suppressWarnings(as.POSIXct(as.character(x), tz = ""))
     if (length(out) == 0) {
       out <- rep(as.POSIXct(NA), n)
     }
@@ -107,7 +110,7 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
 
   list(
     generated_at = payload$generated_at %||% NA_character_,
-    max_concurrent = as.integer(payload$max_concurrent %||% 1L),
+    max_slots = as.integer(payload$max_slots %||% 1L),
     tasks = tab
   )
 }

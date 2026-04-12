@@ -40,12 +40,12 @@ test_that("MockTask supports progress and terminal transitions", {
   expect_equal(prog$message, "halfway")
   expect_s3_class(prog$updated_at, "POSIXct")
 
-  task$set_status("done")
-  expect_equal(task$status(), "done")
+  task$set_status("completed")
+  expect_equal(task$status(), "completed")
   expect_false(task$is_alive())
 
   task$kill()
-  expect_equal(task$status(), "killed")
+  expect_equal(task$status(), "cancelled")
   expect_false(task$is_alive())
   expect_type(task$elapsed(), "double")
 })

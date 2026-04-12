@@ -17,10 +17,10 @@ all_task_items_with_location <- function(state) {
     out[[length(out) + 1L]] <- list(bucket = "running", index = rid, item = item)
   }
 
-  done_ids <- names(state$done %||% list())
-  for (did in done_ids) {
-    item <- state$done[[did]]
-    out[[length(out) + 1L]] <- list(bucket = "done", index = did, item = item)
+  finished_ids <- names(state$finished %||% list())
+  for (fid in finished_ids) {
+    item <- state$finished[[fid]]
+    out[[length(out) + 1L]] <- list(bucket = "finished", index = fid, item = item)
   }
 
   out

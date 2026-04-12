@@ -19,18 +19,18 @@ make_scheduler_item <- function(
     progress = progress,
     message = message,
     submit_time = now - 10,
-    start_time = if (status %in% c("running", "done", "failed", "killed")) now - 5 else as.POSIXct(NA),
-    end_time = if (status %in% c("done", "failed", "killed")) now - 1 else as.POSIXct(NA),
+    start_time = if (status %in% c("running", "completed", "failed", "cancelled")) now - 5 else as.POSIXct(NA),
+    end_time = if (status %in% c("completed", "failed", "cancelled")) now - 1 else as.POSIXct(NA),
     result_path = tempfile(fileext = ".rds"),
     error = error
   )
 }
 
-test_that("list_tasks returns an empty data frame when queue is not initialized", {
-  list_tasks <- getFromNamespace("list_tasks", "taskr")
+test_that("get_task_overview returns an empty data frame when queue is not initialized", {
+  get_task_overview <- getFromNamespace("get_task_overview", "taskr")
   taskr::shutdown_queue()
 
-  out <- list_tasks()
+  out <- get_task_overview()
 
   expect_s3_class(out, "data.frame")
   expect_equal(nrow(out), 0)
@@ -39,25 +39,25 @@ test_that("list_tasks returns an empty data frame when queue is not initialized"
   ))
 })
 
-test_that("list_tasks returns records from queue, running, and done", {
-  list_tasks <- getFromNamespace("list_tasks", "taskr")
+test_that("get_task_overview returns records from queue, running, and finished", {
+  get_task_overview <- getFromNamespace("get_task_overview", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 2)
+  taskr::init_queue(max_slots = 2)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   q <- make_scheduler_item("task_001", "queued_a", "queued")
   r <- make_scheduler_item("task_002", "running_a", "running", progress = 0.5, message = "half")
-  d <- make_scheduler_item("task_003", "done_a", "done")
+  d <- make_scheduler_item("task_003", "completed_a", "completed")
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 2)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 2)
   pkg_env$scheduler$queue <- list(q)
   pkg_env$scheduler$running <- list(task_002 = r)
-  pkg_env$scheduler$done <- list(task_003 = d)
+  pkg_env$scheduler$finished <- list(task_003 = d)
 
-  out <- list_tasks()
+  out <- get_task_overview()
 
   expect_equal(nrow(out), 3)
   expect_setequal(out$id, c("task_001", "task_002", "task_003"))
@@ -65,79 +65,79 @@ test_that("list_tasks returns records from queue, running, and done", {
   expect_true(is.character(out$elapsed))
 })
 
-test_that("list_tasks applies id/label/status filters with AND logic", {
-  list_tasks <- getFromNamespace("list_tasks", "taskr")
+test_that("get_task_overview applies id/label/status filters with AND logic", {
+  get_task_overview <- getFromNamespace("get_task_overview", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 2)
+  taskr::init_queue(max_slots = 2)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   a <- make_scheduler_item("task_011", "fit_a", "queued")
   b <- make_scheduler_item("task_012", "fit_b", "running")
-  c <- make_scheduler_item("task_013", "fit_b", "done")
+  c <- make_scheduler_item("task_013", "fit_b", "completed")
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 2)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 2)
   pkg_env$scheduler$queue <- list(a)
   pkg_env$scheduler$running <- list(task_012 = b)
-  pkg_env$scheduler$done <- list(task_013 = c)
+  pkg_env$scheduler$finished <- list(task_013 = c)
 
-  out1 <- list_tasks(status = "running")
+  out1 <- get_task_overview(status = "running")
   expect_equal(nrow(out1), 1)
   expect_identical(out1$id, "task_012")
 
-  out2 <- list_tasks(label = "fit_b")
+  out2 <- get_task_overview(label = "fit_b")
   expect_equal(nrow(out2), 2)
 
-  out3 <- list_tasks(label = "fit_b", status = "done")
+  out3 <- get_task_overview(label = "fit_b", status = "completed")
   expect_equal(nrow(out3), 1)
   expect_identical(out3$id, "task_013")
 })
 
-test_that("list_tasks sorts rows by status group then id", {
-  list_tasks <- getFromNamespace("list_tasks", "taskr")
+test_that("get_task_overview sorts rows by status group then id", {
+  get_task_overview <- getFromNamespace("get_task_overview", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 2)
+  taskr::init_queue(max_slots = 2)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   q <- make_scheduler_item("task_009", "q", "queued")
   r <- make_scheduler_item("task_004", "r", "running")
-  d2 <- make_scheduler_item("task_010", "d2", "done")
-  d1 <- make_scheduler_item("task_001", "d1", "done")
+  d2 <- make_scheduler_item("task_010", "d2", "completed")
+  d1 <- make_scheduler_item("task_001", "d1", "completed")
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 2)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 2)
   pkg_env$scheduler$queue <- list(q)
   pkg_env$scheduler$running <- list(task_004 = r)
-  pkg_env$scheduler$done <- list(task_010 = d2, task_001 = d1)
+  pkg_env$scheduler$finished <- list(task_010 = d2, task_001 = d1)
 
-  out <- list_tasks()
-  expect_identical(out$status, c("done", "done", "running", "queued"))
+  out <- get_task_overview()
+  expect_identical(out$status, c("completed", "completed", "running", "queued"))
   expect_identical(out$id, c("task_001", "task_010", "task_004", "task_009"))
 })
 
-test_that("list_tasks validates filter types", {
-  list_tasks <- getFromNamespace("list_tasks", "taskr")
-  expect_error(list_tasks(id = 1), "must be NULL or a character vector")
-  expect_error(list_tasks(label = NA_character_), "without missing values")
-  expect_error(list_tasks(status = NA_character_), "without missing values")
+test_that("get_task_overview validates filter types", {
+  get_task_overview <- getFromNamespace("get_task_overview", "taskr")
+  expect_error(get_task_overview(id = 1), "must be NULL or a character vector")
+  expect_error(get_task_overview(label = NA_character_), "without missing values")
+  expect_error(get_task_overview(status = NA_character_), "without missing values")
 })
 
-test_that("list_tasks restarts scheduler when queued work exists", {
+test_that("get_task_overview restarts scheduler when queued work exists", {
   skip_if_not_installed("later")
-  list_tasks <- getFromNamespace("list_tasks", "taskr")
+  get_task_overview <- getFromNamespace("get_task_overview", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
-  stop_scheduler_internal <- getFromNamespace("stop_scheduler_internal", "taskr")
+  stop_scheduler <- getFromNamespace("stop_scheduler", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$queue <- list(
     list(
       id = "task_restart_1",
@@ -164,8 +164,8 @@ test_that("list_tasks restarts scheduler when queued work exists", {
   )
   pkg_env$scheduler$scheduler_handle <- NULL
 
-  list_tasks()
+  get_task_overview()
   expect_true(is.function(pkg_env$scheduler$scheduler_handle))
 
-  stop_scheduler_internal()
+  stop_scheduler()
 })

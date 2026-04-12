@@ -104,7 +104,7 @@ recycle_running_tasks <- function(state, now) {
     if (!is.null(proc) && is.function(proc$close)) {
       try(proc$close(), silent = TRUE)
     }
-    state$done[[id]] <- item
+    state$finished[[id]] <- item
   }
 
   state$running <- keep_running
@@ -127,7 +127,7 @@ launch_from_queue <- function(state, now, start_task_fn = NULL) {
     if (item_slots <= available_slots) {
       launcher <- start_task_fn %||% item$start_task
       if (is.null(launcher) || !is.function(launcher)) {
-        stop("Queued task must provide `start_task` or `tick()` must receive `start_task_fn`.")
+        stop("Queued task must provide `start_task` or `update_queue()` must receive `start_task_fn`.")
       }
 
       task_obj <- launcher(item)
@@ -145,7 +145,7 @@ launch_from_queue <- function(state, now, start_task_fn = NULL) {
   state
 }
 
-tick <- function(state, start_task_fn = NULL, now = Sys.time()) {
+update_queue <- function(state, start_task_fn = NULL, now = Sys.time()) {
   state <- recycle_running_tasks(state, now = now)
   state <- launch_from_queue(state, now = now, start_task_fn = start_task_fn)
   state$scheduler_should_stop <- length(state$running) == 0 && length(state$queue) == 0

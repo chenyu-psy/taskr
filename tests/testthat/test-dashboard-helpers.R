@@ -41,7 +41,7 @@ test_that("split_dashboard_tasks applies requested sorting rules", {
   tab <- data.frame(
     id = c("r_old", "r_new", "q_low_old", "q_high_new", "d_old", "f_new"),
     label = c("r_old", "r_new", "q_low_old", "q_high_new", "d_old", "f_new"),
-    status = c("running", "running", "queued", "queued", "done", "failed"),
+    status = c("running", "running", "queued", "queued", "completed", "failed"),
     priority = c(0L, 0L, 1L, 3L, 0L, 0L),
     submit_time = c(now - 60, now - 30, now - 300, now - 100, now - 500, now - 400),
     start_time = c(now - 100, now - 20, NA, NA, now - 200, now - 150),
@@ -53,7 +53,7 @@ test_that("split_dashboard_tasks applies requested sorting rules", {
 
   expect_identical(out$running$id, c("r_new", "r_old"))
   expect_identical(out$queued$id, c("q_high_new", "q_low_old"))
-  expect_identical(out$done$id, c("f_new", "d_old"))
+  expect_identical(out$finished$id, c("f_new", "d_old"))
 })
 
 test_that("dashboard_summary_metrics returns slot and completion ratios", {
@@ -61,7 +61,7 @@ test_that("dashboard_summary_metrics returns slot and completion ratios", {
 
   tab <- data.frame(
     id = paste0("task_", 1:5),
-    status = c("running", "queued", "done", "failed", "killed"),
+    status = c("running", "queued", "completed", "failed", "cancelled"),
     stringsAsFactors = FALSE
   )
 
@@ -70,9 +70,9 @@ test_that("dashboard_summary_metrics returns slot and completion ratios", {
   expect_equal(summary$total, 5)
   expect_equal(summary$running, 1)
   expect_equal(summary$queued, 1)
-  expect_equal(summary$done, 1)
+  expect_equal(summary$completed, 1)
   expect_equal(summary$failed, 1)
-  expect_equal(summary$killed, 1)
+  expect_equal(summary$cancelled, 1)
   expect_equal(summary$slots_used, 1)
   expect_equal(summary$slots_total, 4)
   expect_equal(summary$slot_ratio, 0.25)
@@ -101,21 +101,21 @@ test_that("dashboard_log_text returns stdout/stderr tail blocks", {
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   item <- make_dashboard_item(
     id = "task_log_001",
     label = "log_demo",
-    status = "done",
+    status = "completed",
     submit_time = Sys.time() - 10,
     end_time = Sys.time() - 1
   )
   item$stdout_buffer <- paste0("line_1\nline_2\nline_3\nline_4")
   item$stderr_buffer <- paste0("err_1\nerr_2")
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
-  pkg_env$scheduler$done <- list(task_log_001 = item)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(task_log_001 = item)
 
   txt <- dashboard_log_text("task_log_001", tail_n = 2)
 
@@ -204,7 +204,7 @@ test_that("dashboard_stan_chain_progress parses chain rows from logs", {
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   item <- make_dashboard_item(
@@ -220,7 +220,7 @@ test_that("dashboard_stan_chain_progress parses chain rows from logs", {
     sep = "\n"
   )
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$running <- list(task_chain_001 = item)
 
   tab <- dashboard_stan_chain_progress("task_chain_001")
@@ -248,7 +248,7 @@ test_that("dashboard_stan_chain_progress sees logs consumed by task status updat
   recycle_running_tasks <- getFromNamespace("recycle_running_tasks", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   fake_task <- new.env(parent = emptyenv())
@@ -279,7 +279,7 @@ test_that("dashboard_stan_chain_progress sees logs consumed by task status updat
   )
   item$task <- fake_task
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$running <- list(task_sync_001 = item)
   pkg_env$scheduler <- recycle_running_tasks(pkg_env$scheduler, now = Sys.time())
 
@@ -287,4 +287,194 @@ test_that("dashboard_stan_chain_progress sees logs consumed by task status updat
   expect_equal(nrow(tab), 2)
   expect_identical(tab$chain, c(1L, 2L))
   expect_equal(round(tab$progress, 2), c(0.50, 0.90))
+})
+
+test_that("parse_generic_progress_fraction uses line-level priority", {
+  parse_generic_progress_fraction <- getFromNamespace("parse_generic_progress_fraction", "taskr")
+
+  text <- paste(
+    "Step 3/10 (45%) [#####-----]",
+    "still running",
+    sep = "\n"
+  )
+
+  expect_equal(parse_generic_progress_fraction(text), 0.3)
+})
+
+test_that("parse_generic_progress_fraction ignores non-progress percent contexts", {
+  parse_generic_progress_fraction <- getFromNamespace("parse_generic_progress_fraction", "taskr")
+
+  text <- paste(
+    "accuracy 45%",
+    "memory usage 72%",
+    sep = "\n"
+  )
+
+  expect_true(is.na(parse_generic_progress_fraction(text)))
+})
+
+test_that("extract_chain_progress_rows parses non-stan chain fraction and percent lines", {
+  extract_chain_progress_rows <- getFromNamespace("extract_chain_progress_rows", "taskr")
+
+  text <- paste(
+    "Chain 1 step 20/100",
+    "Chain 2: progress 45%",
+    sep = "\n"
+  )
+
+  tab <- extract_chain_progress_rows(text)
+  expect_equal(nrow(tab), 2)
+  expect_identical(tab$chain, c(1L, 2L))
+  expect_equal(round(tab$progress, 2), c(0.20, 0.45))
+})
+
+test_that("resolve_dashboard_progress_fraction freezes prior progress on ambiguous lines", {
+  resolve_dashboard_progress_fraction <- getFromNamespace("resolve_dashboard_progress_fraction", "taskr")
+
+  expect_equal(
+    resolve_dashboard_progress_fraction(
+      parsed_fraction = NA_real_,
+      task_fraction = NA_real_,
+      cached_fraction = 0.62
+    ),
+    0.62
+  )
+
+  expect_equal(
+    resolve_dashboard_progress_fraction(
+      parsed_fraction = NA_real_,
+      task_fraction = 0.4,
+      cached_fraction = 0.62
+    ),
+    0.4
+  )
+})
+
+test_that("resolve_dashboard_progress_fraction uses 1% before fallback timeout", {
+  resolve_dashboard_progress_fraction <- getFromNamespace("resolve_dashboard_progress_fraction", "taskr")
+  now <- as.POSIXct("2026-04-11 00:00:05", tz = "UTC")
+
+  expect_equal(
+    resolve_dashboard_progress_fraction(
+      parsed_fraction = NA_real_,
+      task_fraction = NA_real_,
+      cached_fraction = NA_real_,
+      start_time = now - 2,
+      now = now
+    ),
+    0.01
+  )
+})
+
+test_that("resolve_dashboard_progress_fraction falls back to 50% after timeout", {
+  resolve_dashboard_progress_fraction <- getFromNamespace("resolve_dashboard_progress_fraction", "taskr")
+  now <- as.POSIXct("2026-04-11 00:00:10", tz = "UTC")
+
+  expect_equal(
+    resolve_dashboard_progress_fraction(
+      parsed_fraction = NA_real_,
+      task_fraction = NA_real_,
+      cached_fraction = NA_real_,
+      start_time = now - 6,
+      now = now,
+      fallback_after_sec = 5
+    ),
+    0.5
+  )
+
+  expect_equal(
+    resolve_dashboard_progress_fraction(
+      parsed_fraction = NA_real_,
+      task_fraction = NA_real_,
+      cached_fraction = 0.01,
+      start_time = now - 6,
+      now = now,
+      fallback_after_sec = 5
+    ),
+    0.5
+  )
+})
+
+test_that("dashboard_initial_progress_wait_sec uses option with sane fallback", {
+  dashboard_initial_progress_wait_sec <- getFromNamespace("dashboard_initial_progress_wait_sec", "taskr")
+
+  old_opt <- getOption("taskr.dashboard.initial_progress_wait_sec")
+  on.exit(options(taskr.dashboard.initial_progress_wait_sec = old_opt), add = TRUE)
+
+  options(taskr.dashboard.initial_progress_wait_sec = NULL)
+  expect_equal(dashboard_initial_progress_wait_sec(), 3)
+
+  options(taskr.dashboard.initial_progress_wait_sec = 5)
+  expect_equal(dashboard_initial_progress_wait_sec(), 5)
+
+  options(taskr.dashboard.initial_progress_wait_sec = -1)
+  expect_equal(dashboard_initial_progress_wait_sec(), 3)
+})
+
+test_that("dashboard_parse_task_progress returns generic parsed fraction when no chain rows", {
+  dashboard_parse_task_progress <- getFromNamespace("dashboard_parse_task_progress", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  item <- make_dashboard_item(
+    id = "task_generic_001",
+    label = "generic_demo",
+    status = "running",
+    submit_time = Sys.time() - 8,
+    start_time = Sys.time() - 5
+  )
+  item$stdout_buffer <- "Epoch 3/10"
+
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$running <- list(task_generic_001 = item)
+
+  out <- dashboard_parse_task_progress("task_generic_001")
+  expect_equal(nrow(out$chain), 0)
+  expect_equal(out$fraction, 0.3)
+})
+
+test_that("normalize_dashboard_posixct keeps POSIXct values and handles missing values", {
+  normalize_dashboard_posixct <- getFromNamespace("normalize_dashboard_posixct", "taskr")
+
+  ts <- as.POSIXct("2026-04-11 00:00:00", tz = "UTC")
+  out <- normalize_dashboard_posixct(ts)
+  expect_s3_class(out, "POSIXct")
+  expect_equal(as.numeric(out), as.numeric(ts))
+
+  out_na <- normalize_dashboard_posixct(NA)
+  expect_true(is.na(out_na))
+})
+
+test_that("running task card hides message row when message is NA", {
+  skip_if_not_installed("shiny")
+
+  running_task_card_ui <- getFromNamespace("running_task_card_ui", "taskr")
+
+  task <- data.frame(
+    id = "task_001",
+    label = "demo",
+    status = "running",
+    running_elapsed = "5s",
+    start_time = as.POSIXct("2026-04-11 00:00:00", tz = "UTC"),
+    start_time_label = "04-11 00:00:00",
+    message = NA_character_,
+    priority = 1L,
+    submit_time_label = "04-11 00:00:00",
+    end_time_label = "-",
+    error = "",
+    stringsAsFactors = FALSE
+  )
+
+  ui <- running_task_card_ui(
+    task = task[1, , drop = FALSE],
+    expanded = FALSE,
+    chain_tab = data.frame(chain = integer(), progress = numeric(), phase = character(), stringsAsFactors = FALSE),
+    progress_ratio = 0.2
+  )
+  html <- as.character(ui)
+  expect_false(grepl(">NA<", html, fixed = TRUE))
 })

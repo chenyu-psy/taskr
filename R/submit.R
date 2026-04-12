@@ -191,7 +191,7 @@ append_queued_task <- function(state, item) {
   if (requested_slots > capacity_slots) {
     stop(
       "Task requests ", requested_slots, " slot(s), but queue capacity is ",
-      capacity_slots, ". Reduce `resources$slots` or increase `max_concurrent`."
+      capacity_slots, ". Reduce `resources$slots` or increase `max_slots`."
     )
   }
 
@@ -284,7 +284,7 @@ split_map_extra_args <- function(extra_args) {
   }
 
   if (any(!nzchar(arg_names))) {
-    stop("All `...` arguments in `map_calls()` must be named.")
+    stop("All `...` arguments in `map_tasks()` must be named.")
   }
 
   dynamic_idx <- grepl("^fun_", arg_names)
@@ -438,13 +438,13 @@ build_task_item <- function(
 #'   saving.
 #' @return Invisibly returns `NULL`.
 #' @examples
-#' init_queue(max_concurrent = 1)
+#' init_queue(max_slots = 1)
 #' if (interactive() && requireNamespace("callr", quietly = TRUE)) {
 #'   on.exit(shutdown_queue(), add = TRUE)
-#'   submit_task({ 1 + 1 }, label = "toy_expr")
+#'   submit_code({ 1 + 1 }, label = "toy_expr")
 #' }
 #' @export
-submit_task <- function(
+submit_code <- function(
     expr,
     label = NULL,
     priority = 0L,
@@ -479,9 +479,9 @@ submit_task <- function(
   )
 
   pkg_env$scheduler <- append_queued_task(pkg_env$scheduler, item)
-  pkg_env$scheduler <- tick(pkg_env$scheduler)
+  pkg_env$scheduler <- update_queue(pkg_env$scheduler)
   if (scheduler_has_work(pkg_env$scheduler)) {
-    start_scheduler_internal()
+    start_scheduler()
   }
   write_dashboard_snapshot()
   maybe_auto_launch_dashboard()
@@ -504,13 +504,13 @@ submit_task <- function(
 #'   keep.
 #' @return Invisibly returns `NULL`.
 #' @examples
-#' init_queue(max_concurrent = 1)
+#' init_queue(max_slots = 1)
 #' if (interactive() && requireNamespace("callr", quietly = TRUE)) {
 #'   on.exit(shutdown_queue(), add = TRUE)
-#'   submit_call(fun = sum, args = list(1, 2, 3), label = "toy_call")
+#'   submit_task(fun = sum, args = list(1, 2, 3), label = "toy_call")
 #' }
 #' @export
-submit_call <- function(
+submit_task <- function(
     fun,
     args = list(),
     label = NULL,
@@ -550,9 +550,9 @@ submit_call <- function(
   )
 
   pkg_env$scheduler <- append_queued_task(pkg_env$scheduler, item)
-  pkg_env$scheduler <- tick(pkg_env$scheduler)
+  pkg_env$scheduler <- update_queue(pkg_env$scheduler)
   if (scheduler_has_work(pkg_env$scheduler)) {
-    start_scheduler_internal()
+    start_scheduler()
   }
   write_dashboard_snapshot()
   maybe_auto_launch_dashboard()
@@ -562,7 +562,7 @@ submit_call <- function(
 #' Submit a Grid of Function Calls to the Queue
 #'
 #' Purpose:
-#' - Expand a parameter grid into multiple `submit_call()` submissions.
+#' - Expand a parameter grid into multiple `submit_task()` submissions.
 #' - Support `fun_` dynamic argument generators based on each grid row.
 #'
 #' @param fun Function object to run for each grid row.
@@ -575,15 +575,15 @@ submit_call <- function(
 #' @param resources Resource declaration list. v0.4 uses `list(slots = 1)`.
 #' @param import Task context import mode. Use `"auto"` (default), `"none"`,
 #'   or `list(env = ..., packages = ..., workdir = ..., vars = ...)`.
-#' @param output Output policy passed to `submit_call()`. Defaults to `"none"`
+#' @param output Output policy passed to `submit_task()`. Defaults to `"none"`
 #'   to avoid writing large batch outputs unless requested.
 #' @return Invisibly returns `NULL`.
 #' @examples
-#' init_queue(max_concurrent = 1)
+#' init_queue(max_slots = 1)
 #' grid <- data.frame(model = c("a", "b"), stringsAsFactors = FALSE)
 #' if (interactive() && requireNamespace("callr", quietly = TRUE)) {
 #'   on.exit(shutdown_queue(), add = TRUE)
-#'   map_calls(
+#'   map_tasks(
 #'     fun = function(formula) formula,
 #'     grid = grid,
 #'     fun_formula = function(model) paste0("y ~ ", model),
@@ -591,7 +591,7 @@ submit_call <- function(
 #'   )
 #' }
 #' @export
-map_calls <- function(
+map_tasks <- function(
     fun,
     grid,
     fixed_args = list(),
@@ -628,7 +628,7 @@ map_calls <- function(
     run_args <- utils::modifyList(run_args, dynamic_values)
     label <- render_label_template(label_fmt = label_fmt, vars = vars)
 
-    submit_call(
+    submit_task(
       fun = fun,
       args = run_args,
       label = label,

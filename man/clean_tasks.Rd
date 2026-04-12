@@ -12,11 +12,11 @@ Invisibly returns \code{NULL}.
 \description{
 Purpose:
 \itemize{
-\item Remove done/failed/killed tasks from scheduler memory.
+\item Remove completed/failed/cancelled tasks from scheduler memory.
 \item Delete their result files when present.
 }
 }
 \examples{
-init_queue(max_concurrent = 1)
+init_queue(max_slots = 1)
 clean_tasks()
 }

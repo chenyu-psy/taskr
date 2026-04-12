@@ -11,10 +11,10 @@
 #' @param id_or_label Task id or label used to identify one task.
 #' @return A named list with `id`, `label`, `status`, `stdout`, and `stderr`.
 #' @examples
-#' init_queue(max_concurrent = 1)
-#' # task_logs("task_001")
+#' init_queue(max_slots = 1)
+#' # get_task_log("task_001")
 #' @export
-task_logs <- function(id_or_label) {
+get_task_log <- function(id_or_label) {
   validate_id_or_label(id_or_label)
 
   if (is.null(pkg_env$scheduler)) {

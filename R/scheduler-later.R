@@ -27,24 +27,25 @@ schedule_next_tick <- function() {
 
   interval <- as.numeric(pkg_env$scheduler$scheduler_interval %||% 1.0)
   pkg_env$scheduler$scheduler_handle <- later::later(
-    func = scheduler_tick_once,
+    func = update_scheduler,
     delay = interval
   )
 
   invisible(NULL)
 }
 
-scheduler_tick_once <- function() {
+update_scheduler <- function() {
   if (is.null(pkg_env$scheduler)) {
     return(invisible(NULL))
   }
 
+  try(process_dashboard_commands(), silent = TRUE)
   pkg_env$scheduler$scheduler_handle <- NULL
-  pkg_env$scheduler <- tick(pkg_env$scheduler)
+  pkg_env$scheduler <- update_queue(pkg_env$scheduler)
   write_dashboard_snapshot()
 
   if (!scheduler_has_work(pkg_env$scheduler) || isTRUE(pkg_env$scheduler$scheduler_should_stop)) {
-    stop_scheduler_internal()
+    stop_scheduler()
     return(invisible(NULL))
   }
 
@@ -52,7 +53,7 @@ scheduler_tick_once <- function() {
   invisible(NULL)
 }
 
-start_scheduler_internal <- function(interval = NULL) {
+start_scheduler <- function(interval = NULL) {
   if (is.null(pkg_env$scheduler)) {
     return(invisible(FALSE))
   }
@@ -73,7 +74,7 @@ start_scheduler_internal <- function(interval = NULL) {
   invisible(TRUE)
 }
 
-stop_scheduler_internal <- function() {
+stop_scheduler <- function() {
   if (is.null(pkg_env$scheduler)) {
     return(invisible(FALSE))
   }

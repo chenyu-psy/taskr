@@ -1,14 +1,19 @@
 # Overview
 
-`taskr` is a lightweight background task manager for R. It runs long jobs in
-separate R processes while keeping your main session responsive.
+`taskr` is a background task queue for R with a built-in Shiny dashboard.
+It runs long jobs in separate R processes and keeps the main session usable.
 
-Current version focus:
+Motivation: [`job`](https://github.com/lindeloev/job) introduced a useful
+background-execution idea, but it depends on `rstudioapi`, which limits use in
+new IDEs such as Positron. It also does not provide a full task-management
+queue for scheduling, state tracking, and operational control.
 
-- submit tasks (`submit_task()`, `submit_call()`, `map_calls()`)
-- monitor tasks with the built-in Shiny **Task Monitor** (auto-launched)
-- control tasks (`cancel_task()`, `clean_tasks()`)
-- retrieve logs/results (`task_logs()`, `task_result()`)
+`taskr` addresses these gaps with:
+
+- queue-based scheduling for background tasks
+- non-blocking task monitoring during long runs
+- a built-in dashboard for live queue visibility
+- simple controls for task management and result access
 
 The queue is session-local and temporary by design: restarting R clears queue
 state and task records.
@@ -24,191 +29,132 @@ remotes::install_github("chenyu-psy/taskr")
 
 # Quick Start
 
+The fastest way to understand `taskr` is to run one complete workflow:
+initialize queue capacity, submit work, monitor progress, retrieve outputs, and
+clean up.
+
+## Step 1: Initialize the Queue
+
+`max_slots` is the total concurrency budget for the session.  
+Higher values run more tasks at once, but also increase CPU and memory load.
+
 ```r
 library(taskr)
+init_queue(max_slots = 3)
+```
 
-# Optional: set concurrency once
-init_queue(max_concurrent = 3)
+## Step 2: Submit Work
 
-# Submit a task (Task Monitor auto-opens in Viewer when available)
-submit_task(
+Use `submit_code()` for quick inline code blocks.  
+Use `submit_task()` when you already have a function plus explicit arguments.
+
+```r
+submit_code(
   expr = {
     Sys.sleep(10)
-    "done"
-  },
-  label = "demo"
-)
-
-# Query status any time
-list_tasks()
-```
-
-# Task Manager
-
-The task manager provides background execution plus queue-based scheduling.
-Tasks are submitted to a priority queue and launched automatically when
-slots become available. The scheduler runs non-blockingly via `later`,
-so it integrates naturally with Shiny and other event-driven R frameworks.
-
-## Core Functions
-
-### 1. Submitting Background Tasks
-
-The `submit_task` function executes an R expression in a background process
-with full control over variable imports, priority, and resource allocation:
-
-```r
-submit_task(
-  expr = {
-    model <- lm(mpg ~ wt + qsec, data = mtcars)
-    summary(model)
-  },
-  label = "lm_fit",
-  priority = 1          # higher priority runs first
-)
-```
-
-The `submit_call` function executes a function call with explicit arguments:
-
-```r
-submit_call(
-  fun = brms::brm,
-  args = list(
-    formula = mpg ~ wt + qsec,
-    data = mtcars,
-    chains = 4
-  ),
-  label = "brm_model"
-)
-```
-
-The `map_calls` function batch-submits tasks over a parameter grid, which is
-useful for running the same function with different parameter combinations:
-
-```r
-grid <- data.frame(
-  k = c(1, 2, 3),
-  n = c(100, 200, 300)
-)
-
-map_calls(
-  fun = function(k, n) rnorm(n, mean = k),
-  grid = grid,
-  label_fmt = "sim_k{k}_n{n}"
-)
-```
-
-### 2. Queue Management
-
-Initialize the queue and set concurrency limits. By default, the number of
-concurrent slots is auto-detected based on available CPU cores:
-
-```r
-init_queue()              # auto-detect
-init_queue(max_concurrent = 4)  # explicit
-```
-
-Shutdown the queue and kill all active tasks:
-
-```r
-shutdown_queue()
-```
-
-### 3. Monitoring and Querying
-
-Track the progress and status of all submitted tasks:
-
-```r
-list_tasks()                     # view all tasks
-list_tasks(status = "running")   # filter by status
-list_tasks(label = "brm_model")  # filter by label
-```
-
-Retrieve logs and results:
-
-```r
-task_logs("brm_model")    # stdout/stderr from the child process
-task_result("brm_model")  # blocking: waits until the task finishes
-```
-
-### 4. Task Control
-
-Cancel a running or queued task, or clean up completed tasks:
-
-```r
-cancel_task("brm_model")   # kill running or remove queued task
-clean_tasks()               # remove all done/failed/killed records
-```
-
-## Advanced Functions
-
-### 1. Progress Reporting
-
-The `report_progress` function can be called inside a background task to
-report progress back to the main session:
-
-```r
-submit_task(
-  expr = {
-    for (i in 1:100) {
-      Sys.sleep(0.1)
-      taskr::report_progress(i / 100, sprintf("Step %d of 100", i))
-    }
     "completed"
   },
-  label = "long_job"
+  label = "demo_code"
 )
 
-# Progress is visible in list_tasks()
-list_tasks(label = "long_job")
+submit_task(
+  fun = function(n) {
+    Sys.sleep(6)
+    mean(rnorm(n))
+  },
+  args = list(n = 10000),
+  label = "demo_function",
+  resources = list(slots = 2L)
+)
 ```
 
-### 2. Task Monitor (Shiny)
+`resources$slots` is checked against `max_slots`.  
+With `max_slots = 3`, a task requesting `slots = 2` can run, and leaves one
+remaining slot for other queued work.
 
-`taskr` now uses a Shiny dashboard (**Task Monitor**) as the default live
-monitoring interface.
+## Step 3: Monitor Task State
 
-Behavior in the current version:
+After Step 2 submits tasks, `taskr` auto-launches the dashboard in interactive
+sessions. You can use it to watch queue progress and manage tasks (for example,
+cancel tasks or clean finished records). See [Dashboard Panels](#dashboard-panels)
+for panel-by-panel details.
 
-- dashboard auto-launches after `submit_*` calls (interactive sessions)
-- dashboard runs in a background process, so console stays usable
-- console prints `Listening on http://127.0.0.1:...` for browser access
-- set `options(taskr.auto_dashboard = FALSE)` to disable auto-launch
-
-Task Monitor layout:
-
-- **Summary**: slot usage and terminal completion progress bars
-- **Running**: active tasks with elapsed time, cancel action, and progress bars
-  (including per-chain bars for Stan/JAGS-style logs when detected)
-- **Queued**: waiting tasks sorted by priority then submit time
-- **Finished**: terminal tasks with filters (`done` / `failed` / `killed`) and
-  `Clean Finished`
-- click a task card to expand details and tail logs
-
-A ready-to-run demo is available at `inst/examples/shiny-loop-demo.R`:
+If you prefer code-based monitoring, use:
 
 ```r
-source(system.file("examples", "shiny-loop-demo.R", package = "taskr"))
+get_task_overview()
+get_task_overview(status = "running")
 ```
 
-# Notes
+## Step 4: Read Outputs
 
-- The scheduler starts lazily when tasks are submitted and stops when the queue
-  is empty.
-- `import = "auto"` (the default) automatically captures referenced variables
-  and loaded packages from the calling environment.
-- Task status values: `"queued"`, `"running"`, `"done"`, `"failed"`, `"killed"`.
-- Results are stored as `.rds` files in a temporary directory and are lost
-  when the R session ends.
-- Dashboard snapshots are temporary session files used for background monitor
-  reads. They are not long-term records.
-- `list_tasks()` returns a data frame with columns: `id`, `label`, `status`,
-  `progress`, `message`, `elapsed`, `error`, `submit_time`, `start_time`,
-  `end_time`.
-- The Task Monitor requires `shiny` and background launch requires `callr`
-  (both listed in Suggests).
+Use logs for runtime diagnostics and results for final outputs.
+
+```r
+get_task_log("demo_code")
+get_task_result("demo_function")
+```
+
+# Dashboard Panels
+
+In most interactive sessions, the dashboard appears automatically after you
+submit tasks, so you can monitor progress right away. You can also call
+`launch_dashboard()` manually if needed.
+
+The dashboard opens in the IDE Viewer pane when available. If it does not
+appear, check whether the Viewer pane is hidden, or copy the dashboard URL
+printed in the console into a web browser.
+
+## Overview
+
+The dashboard gives a single view of the current queue. It separates running,
+waiting, and finished tasks so you can quickly see what is happening without
+polling the console.
+
+![Dashboard overview](inst/images/dashboard-panels/overview.jpg)
+
+## Summary Panel
+
+The summary area reports overall queue state. Slot usage shows how much of the
+configured capacity is currently occupied, and completion progress shows how
+many submitted tasks have reached a terminal state. The search box filters task
+cards by id or label across the dashboard.
+
+<p align="center">
+  <img src="inst/images/dashboard-panels/summary-panel.jpg" alt="Summary panel" width="50%">
+</p>
+
+## Running Panel
+
+The running panel lists tasks that are currently executing. Each card reports
+elapsed time, current status, and the latest progress signal when available.
+Task details expand inline, and running tasks can be cancelled from the card.
+
+<p align="center">
+  <img src="inst/images/dashboard-panels/running-panel.jpg" alt="Running panel" width="50%">
+</p>
+
+## Queued Panel
+
+The queued panel lists tasks that are waiting for available slots. Tasks are
+ordered by priority and submit time, which makes it easier to understand why a
+task has not started yet.
+
+<p align="center">
+  <img src="inst/images/dashboard-panels/queued-panel.jpg" alt="Queued panel" width="50%">
+</p>
+
+## Finished Panel
+
+The finished panel keeps completed, failed, and cancelled tasks together. Status
+filters help focus on failures or cancellations, and cleanup actions remove
+finished records once they are no longer needed.
+
+<p align="center">
+  <img src="inst/images/dashboard-panels/finished-panel.jpg" alt="Finished panel" width="50%">
+</p>
 
 # Status
 
-`taskr` is under active development. The core end-to-end workflow is available
-for practical testing. Feedback and contributions are welcome.
+`taskr` is under active development. Feedback and contributions are welcome.
+Before the first stable release, function names and parameters may change.
