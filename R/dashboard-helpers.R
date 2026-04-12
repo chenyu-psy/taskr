@@ -560,13 +560,17 @@ parse_percent_progress_line <- function(line) {
   max(0, min(1, pct / 100))
 }
 
-# Parse one line with bounded visual progress bars (`[###---]`, `|███   |`).
+# Parse one line with bounded visual progress bars (e.g., `[###---]`, `|***   |`).
 parse_visual_bar_progress_line <- function(line) {
   if (!is.character(line) || length(line) != 1 || is.na(line) || !nzchar(trimws(line))) {
     return(NA_real_)
   }
 
-  bar_pats <- c("\\[([#=+\\.\\- _*█▓▒]{5,})\\]", "\\|([#=+\\.\\- _*█▓▒]{5,})\\|")
+  block_chars <- intToUtf8(c(0x2588, 0x2593, 0x2592))
+  bar_pats <- c(
+    sprintf("\\[([#=+\\.\\- _*%s]{5,})\\]", block_chars),
+    sprintf("\\|([#=+\\.\\- _*%s]{5,})\\|", block_chars)
+  )
   for (pat in bar_pats) {
     m <- regexec(pat, line, perl = TRUE)
     g <- regmatches(line, m)[[1]]
@@ -581,7 +585,7 @@ parse_visual_bar_progress_line <- function(line) {
     }
 
     chars <- strsplit(bar, "", fixed = TRUE)[[1]]
-    fill_count <- sum(chars %in% c("#", "=", "+", "*", "█", "▓", "▒"))
+    fill_count <- sum(chars %in% c("#", "=", "+", "*", strsplit(block_chars, "", fixed = TRUE)[[1]]))
     if (fill_count <= 0) {
       next
     }
