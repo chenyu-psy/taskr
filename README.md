@@ -1,21 +1,21 @@
 # Overview
 
-`taskr` is a background task queue for R with a built-in Shiny dashboard.
-It runs long jobs in separate R processes and keeps the main session usable.
+`taskr` helps you run long R computations without locking up the interactive
+console. You submit code or function calls to a queue, and `taskr` runs them in
+separate R processes while you keep working in the main session.
 
-Motivation: [`job`](https://github.com/lindeloev/job) introduced a useful
-background-execution idea, but it depends on `rstudioapi`, which limits use in
-new IDEs such as Positron. It also does not provide a full task-management
-queue for scheduling, state tracking, and operational control.
+`taskr` is inspired by the same idea as
+[`job`](https://github.com/lindeloev/job): move long computations out of the
+main console. In practice, `job` depends on `rstudioapi`, which makes it hard to
+use in newer IDEs such as Positron. `taskr` takes that background-computation
+workflow and adds an explicit queue for managing many tasks at once.
 
-`taskr` addresses these gaps with:
+With `taskr`, you can set how many task slots your session should use, submit
+many tasks at once, and let the queue start them as capacity becomes available.
+The built-in dashboard shows what is queued, running, and finished, and gives
+you simple controls for cancellation, cleanup, logs, and results.
 
-- queue-based scheduling for background tasks
-- non-blocking task monitoring during long runs
-- a built-in dashboard for live queue visibility
-- simple controls for task management and result access
-
-The queue is session-local and temporary by design: restarting R clears queue
+The queue is session-local and temporary by design. Restarting R clears queue
 state and task records.
 
 # Installation
