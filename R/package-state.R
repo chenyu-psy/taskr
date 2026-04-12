@@ -56,7 +56,7 @@ pkg_env <- new.env(parent = emptyenv())
 #' @keywords internal
 .onUnload <- function(libpath) {
   if (!is.null(pkg_env$scheduler)) {
-    stop_scheduler_internal()
+    stop_scheduler()
     pkg_env$scheduler <- NULL
   }
 

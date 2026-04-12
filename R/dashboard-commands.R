@@ -96,13 +96,13 @@ dashboard_clear_all_tasks <- function() {
     slots <- 1L
   }
 
-  stop_scheduler_internal()
+  stop_scheduler()
   cleanup_active_tasks()
   if (!is.null(pkg_env$active_tasks)) {
     rm(list = ls(pkg_env$active_tasks, all.names = TRUE), envir = pkg_env$active_tasks)
   }
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = slots)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = slots)
   write_dashboard_snapshot()
   invisible(TRUE)
 }

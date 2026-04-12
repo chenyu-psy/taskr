@@ -1,5 +1,5 @@
 make_log_scripted_task <- function(
-    status_seq = c("running", "done"),
+    status_seq = c("running", "completed"),
     stdout = "out\n",
     stderr = "err\n") {
   state <- new.env(parent = emptyenv())
@@ -22,42 +22,42 @@ make_log_scripted_task <- function(
   )
 }
 
-test_that("task_logs returns buffered logs for a done task", {
-  task_logs <- getFromNamespace("task_logs", "taskr")
+test_that("get_task_log returns buffered logs for a completed task", {
+  get_task_log <- getFromNamespace("get_task_log", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
-  pkg_env$scheduler$done <- list(
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(
     task_001 = list(
       id = "task_001",
       label = "log_done",
-      status = "done",
+      status = "completed",
       stdout_buffer = "hello\n",
       stderr_buffer = ""
     )
   )
 
-  out <- task_logs("log_done")
+  out <- get_task_log("log_done")
   expect_identical(out$id, "task_001")
-  expect_identical(out$status, "done")
+  expect_identical(out$status, "completed")
   expect_identical(out$stdout, "hello\n")
 })
 
-test_that("task_logs recycles running logs before returning", {
-  task_logs <- getFromNamespace("task_logs", "taskr")
+test_that("get_task_log recycles running logs before returning", {
+  get_task_log <- getFromNamespace("get_task_log", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$running <- list(
     task_010 = list(
       id = "task_010",
@@ -74,17 +74,17 @@ test_that("task_logs recycles running logs before returning", {
     )
   )
 
-  out <- task_logs("log_run")
+  out <- get_task_log("log_run")
   expect_identical(out$status, "running")
   expect_true(grepl("chunk", out$stdout))
   expect_true(grepl("warn", out$stderr))
 })
 
-test_that("task_logs errors when task is missing", {
-  task_logs <- getFromNamespace("task_logs", "taskr")
+test_that("get_task_log errors when task is missing", {
+  get_task_log <- getFromNamespace("get_task_log", "taskr")
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
-  expect_error(task_logs("missing"), "Task not found")
+  expect_error(get_task_log("missing"), "Task not found")
 })

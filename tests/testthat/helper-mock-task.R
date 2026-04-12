@@ -28,7 +28,7 @@ MockTask <- R6::R6Class(
         stop("`id` must be a single non-empty character string.")
       }
 
-      allowed_status <- c("running", "done", "failed", "cancelled")
+      allowed_status <- c("running", "completed", "failed", "cancelled")
       if (!status %in% allowed_status) {
         stop("`status` must be one of: ", paste(allowed_status, collapse = ", "))
       }
@@ -42,7 +42,7 @@ MockTask <- R6::R6Class(
       self$stdout_buffer <- ""
       self$stderr_buffer <- ""
 
-      if (status %in% c("done", "failed", "cancelled")) {
+      if (status %in% c("completed", "failed", "cancelled")) {
         self$finished_at <- self$created_at
       }
     },
@@ -52,13 +52,13 @@ MockTask <- R6::R6Class(
     },
 
     set_status = function(status) {
-      allowed_status <- c("running", "done", "failed", "cancelled")
+      allowed_status <- c("running", "completed", "failed", "cancelled")
       if (!status %in% allowed_status) {
         stop("`status` must be one of: ", paste(allowed_status, collapse = ", "))
       }
 
       self$status_value <- status
-      if (status %in% c("done", "failed", "cancelled")) {
+      if (status %in% c("completed", "failed", "cancelled")) {
         self$finished_at <- Sys.time()
       }
 

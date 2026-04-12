@@ -30,14 +30,14 @@ test_that("dashboard snapshot round-trip keeps task rows readable", {
     stderr_buffer = ""
   )
 
-  state <- new_scheduler_state(max_concurrent = 3L)
+  state <- new_scheduler_state(max_slots = 3L)
   state$running <- list(task_001 = item)
   pkg_env$scheduler <- state
 
   write_dashboard_snapshot(now = now)
   snap <- read_dashboard_snapshot()
 
-  expect_equal(snap$max_concurrent, 3L)
+  expect_equal(snap$max_slots, 3L)
   expect_true(is.data.frame(snap$tasks))
   expect_equal(nrow(snap$tasks), 1)
   expect_identical(snap$tasks$id[[1]], "task_001")
@@ -78,7 +78,7 @@ test_that("dashboard snapshot round-trip preserves local elapsed timing", {
     stderr_buffer = ""
   )
 
-  state <- new_scheduler_state(max_concurrent = 1L)
+  state <- new_scheduler_state(max_slots = 1L)
   state$running <- list(task_local_001 = item)
   pkg_env$scheduler <- state
 

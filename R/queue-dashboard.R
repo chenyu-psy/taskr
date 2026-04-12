@@ -157,12 +157,12 @@ queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
   )
 }
 
-# Render one terminal-task card (done/failed/cancelled).
+# Render one terminal-task card (completed/failed/cancelled).
 # Args:
 # - task: One-row data.frame for a terminal task.
 # Returns:
 # - A `shiny::div` card tag.
-done_task_card_ui <- function(task, expanded = FALSE) {
+finished_task_card_ui <- function(task, expanded = FALSE) {
   select_id <- button_id_for_task("select", task$id)
 
   shiny::div(
@@ -216,9 +216,9 @@ column_cards_ui <- function(tab, title, renderer, header_right = NULL, subheader
   )
 }
 
-done_filter_controls_ui <- function(done_n, failed_n, cancelled_n, selected = "done") {
+finished_filter_controls_ui <- function(completed_n, failed_n, cancelled_n, selected = "completed") {
   btn_class <- function(key) {
-    base <- "btn btn-sm done-filter-btn"
+    base <- "btn btn-sm finished-filter-btn"
     if (identical(selected, key)) {
       return(paste(base, "active"))
     }
@@ -226,10 +226,10 @@ done_filter_controls_ui <- function(done_n, failed_n, cancelled_n, selected = "d
   }
 
   shiny::div(
-    class = "done-filter-row",
-    shiny::actionButton("done_filter_done", sprintf("done (%d)", done_n), class = btn_class("done")),
-    shiny::actionButton("done_filter_failed", sprintf("failed (%d)", failed_n), class = btn_class("failed")),
-    shiny::actionButton("done_filter_cancelled", sprintf("cancelled (%d)", cancelled_n), class = btn_class("cancelled"))
+    class = "finished-filter-row",
+    shiny::actionButton("finished_filter_completed", sprintf("completed (%d)", completed_n), class = btn_class("completed")),
+    shiny::actionButton("finished_filter_failed", sprintf("failed (%d)", failed_n), class = btn_class("failed")),
+    shiny::actionButton("finished_filter_cancelled", sprintf("cancelled (%d)", cancelled_n), class = btn_class("cancelled"))
   )
 }
 
@@ -275,12 +275,12 @@ dashboard_css <- function() {
       ".status-pill { font-size: 11px; border-radius: 999px; padding: 2px 8px; border: 1px solid transparent; text-transform: lowercase; }",
       ".status-running { background: #ebf8f1; color: #0d6f4b; border-color: #9cd8bd; }",
       ".status-queued { background: #f2f5f8; color: #475867; border-color: #cfd9e3; }",
-      ".status-done { background: #edf6ff; color: #1f5f99; border-color: #b9d7f4; }",
+      ".status-completed { background: #edf6ff; color: #1f5f99; border-color: #b9d7f4; }",
       ".status-failed { background: #fdecec; color: #9e1c1c; border-color: #efb5b5; }",
       ".status-cancelled { background: #fff3e5; color: #9a5a00; border-color: #f2d2a3; }",
-      ".done-filter-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }",
-      ".done-filter-btn { border: 1px solid #cfd8e2; background: #f7f9fc; color: #304558; }",
-      ".done-filter-btn.active { background: #2d6cdf; color: #fff; border-color: #2d6cdf; }",
+      ".finished-filter-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }",
+      ".finished-filter-btn { border: 1px solid #cfd8e2; background: #f7f9fc; color: #304558; }",
+      ".finished-filter-btn.active { background: #2d6cdf; color: #fff; border-color: #2d6cdf; }",
       ".empty-block { color: #667788; font-style: italic; padding: 6px 0; }",
       ".shiny-text-output { margin-bottom: 0; }",
       sep = "\n"
@@ -428,7 +428,7 @@ queue_dashboard_ui <- function() {
       ),
       shiny::fluidRow(
         class = "dashboard-row",
-        shiny::column(width = 12, shiny::div(class = "block-card", shiny::uiOutput("done_cards")))
+        shiny::column(width = 12, shiny::div(class = "block-card", shiny::uiOutput("finished_cards")))
       )
     )
   )
@@ -436,7 +436,7 @@ queue_dashboard_ui <- function() {
 
 queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path = NULL, command_path = NULL) {
   if (!requireNamespace("shiny", quietly = TRUE)) {
-    stop("`queue_dashboard()` requires the `shiny` package. Install it with install.packages('shiny').")
+    stop("`launch_dashboard()` requires the `shiny` package. Install it with install.packages('shiny').")
   }
 
   data_mode <- match.arg(data_mode)
@@ -460,7 +460,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       refresh_nonce <- shiny::reactiveVal(0L)
       observed_select_ids <- shiny::reactiveVal(character())
       observed_cancel_ids <- shiny::reactiveVal(character())
-      done_filter_status <- shiny::reactiveVal("done")
+      finished_filter_status <- shiny::reactiveVal("completed")
       display_progress_cache <- shiny::reactiveVal(list())
       pending_cancel_ids <- shiny::reactiveVal(character())
       action_cooldown <- shiny::reactiveVal(list())
@@ -469,11 +469,11 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       read_snapshot_tasks <- function() {
         out <- tryCatch(read_dashboard_snapshot(path = snapshot_path), error = function(e) NULL)
         if (is.null(out)) {
-          return(list(tasks = empty_dashboard_table(), max_concurrent = 1L))
+          return(list(tasks = empty_dashboard_table(), max_slots = 1L))
         }
         list(
           tasks = out$tasks %||% empty_dashboard_table(),
-          max_concurrent = as.integer(out$max_concurrent %||% 1L)
+          max_slots = as.integer(out$max_slots %||% 1L)
         )
       }
 
@@ -562,7 +562,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 
       output$summary_progress <- shiny::renderUI({
         slots <- if (isTRUE(read_only)) {
-          read_snapshot_tasks()$max_concurrent %||% 1L
+          read_snapshot_tasks()$max_slots %||% 1L
         } else {
           pkg_env$scheduler$capacity$slots %||% 1L
         }
@@ -574,7 +574,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           ),
           progress_bar_tag(
             ratio = summary$completion_ratio,
-            label = sprintf("Completion: %d / %d terminal", summary$done + summary$failed + summary$cancelled, summary$total)
+            label = sprintf("Completion: %d / %d terminal", summary$completed + summary$failed + summary$cancelled, summary$total)
           )
         )
       })
@@ -679,24 +679,24 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         )
       })
 
-      output$done_cards <- shiny::renderUI({
+      output$finished_cards <- shiny::renderUI({
         expanded_task_id <- selected_id()
-        done_all <- state_split()$done
-        done_n <- sum(done_all$status == "done")
-        failed_n <- sum(done_all$status == "failed")
-        cancelled_n <- sum(done_all$status == "cancelled")
-        selected_filter <- done_filter_status()
-        done_filtered <- done_all[done_all$status == selected_filter, , drop = FALSE]
+        finished_all <- state_split()$finished
+        completed_n <- sum(finished_all$status == "completed")
+        failed_n <- sum(finished_all$status == "failed")
+        cancelled_n <- sum(finished_all$status == "cancelled")
+        selected_filter <- finished_filter_status()
+        finished_filtered <- finished_all[finished_all$status == selected_filter, , drop = FALSE]
 
         column_cards_ui(
-          done_filtered,
+          finished_filtered,
           title = "Finished",
-          renderer = function(task) done_task_card_ui(task, expanded = identical(task$id, expanded_task_id)),
+          renderer = function(task) finished_task_card_ui(task, expanded = identical(task$id, expanded_task_id)),
           header_right = if (isTRUE(can_control)) {
             shiny::actionButton("clean_finished", "Clean Finished", class = "btn btn-warning btn-sm")
           },
-          subheader = done_filter_controls_ui(
-            done_n = done_n,
+          subheader = finished_filter_controls_ui(
+            completed_n = completed_n,
             failed_n = failed_n,
             cancelled_n = cancelled_n,
             selected = selected_filter
@@ -704,16 +704,16 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         )
       })
 
-      shiny::observeEvent(input$done_filter_done, {
-        done_filter_status("done")
+      shiny::observeEvent(input$finished_filter_completed, {
+        finished_filter_status("completed")
       }, ignoreInit = TRUE)
 
-      shiny::observeEvent(input$done_filter_failed, {
-        done_filter_status("failed")
+      shiny::observeEvent(input$finished_filter_failed, {
+        finished_filter_status("failed")
       }, ignoreInit = TRUE)
 
-      shiny::observeEvent(input$done_filter_cancelled, {
-        done_filter_status("cancelled")
+      shiny::observeEvent(input$finished_filter_cancelled, {
+        finished_filter_status("cancelled")
       }, ignoreInit = TRUE)
 
       can_issue_action <- function(key, cooldown_sec = 5) {
@@ -765,7 +765,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         ids <- unique(c(
           filtered_running_tasks()$id,
           state_split()$queued$id,
-          state_split()$done$id
+          state_split()$finished$id
         ))
 
         observe_register_buttons(
@@ -927,7 +927,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           tryCatch(
             {
               shutdown_queue()
-              init_queue(max_concurrent = slots)
+              init_queue(max_slots = slots)
               display_progress_cache(list())
               selected_id(NULL)
               shiny::showNotification("All tasks cleared.", type = "message")
@@ -956,7 +956,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         visible_ids <- unique(c(
           filtered_running_tasks()$id,
           state_split()$queued$id,
-          state_split()$done$id
+          state_split()$finished$id
         ))
         if (length(visible_ids) == 0) return(invisible(NULL))
         if (!current_id %in% visible_ids) {
@@ -972,16 +972,16 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 
         running_ids <- filtered_running_tasks()$id
         queued_ids <- state_split()$queued$id
-        done_all <- state_split()$done
-        selected_filter <- done_filter_status()
-        done_filtered_ids <- done_all$id[done_all$status == selected_filter]
+        finished_all <- state_split()$finished
+        selected_filter <- finished_filter_status()
+        finished_filtered_ids <- finished_all$id[finished_all$status == selected_filter]
 
         container_key <- NULL
         if (current_id %in% running_ids) {
           container_key <- "col-running"
         } else if (current_id %in% queued_ids) {
           container_key <- "col-queued"
-        } else if (current_id %in% done_filtered_ids) {
+        } else if (current_id %in% finished_filtered_ids) {
           container_key <- "col-finished"
         }
 
@@ -1018,13 +1018,13 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 #' @return Invisibly returns the dashboard URL.
 #' @examples
 #' \dontrun{
-#' init_queue(max_concurrent = 2)
-#' queue_dashboard()
+#' init_queue(max_slots = 2)
+#' launch_dashboard()
 #' }
 #' @export
-queue_dashboard <- function(open_viewer = TRUE) {
+launch_dashboard <- function(open_viewer = TRUE) {
   if (!requireNamespace("shiny", quietly = TRUE)) {
-    stop("`queue_dashboard()` requires the `shiny` package. Install it with install.packages('shiny').")
+    stop("`launch_dashboard()` requires the `shiny` package. Install it with install.packages('shiny').")
   }
 
   ensure_queue_initialized()

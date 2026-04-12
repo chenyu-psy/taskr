@@ -2,10 +2,11 @@
 % Please edit documentation in R/submit.R
 \name{submit_task}
 \alias{submit_task}
-\title{Submit an Expression Task to the Queue}
+\title{Submit a Function Call Task to the Queue}
 \usage{
 submit_task(
-  expr,
+  fun,
+  args = list(),
   label = NULL,
   priority = 0L,
   resources = list(slots = 1L),
@@ -14,7 +15,9 @@ submit_task(
 )
 }
 \arguments{
-\item{expr}{Expression to evaluate in a child process.}
+\item{fun}{Function object to run in the child process.}
+
+\item{args}{List of arguments passed to \code{fun} via \code{do.call()}.}
 
 \item{label}{Optional user-facing task label.}
 
@@ -25,8 +28,8 @@ submit_task(
 \item{import}{Task context import mode. Use \code{"auto"} (default), \code{"none"},
 or \code{list(env = ..., packages = ..., workdir = ..., vars = ...)}.}
 
-\item{output}{Either \code{"all"} or \code{"none"}. \code{"none"} skips result file
-saving.}
+\item{output}{\code{"all"}, \code{"none"}, or a character vector of result fields to
+keep.}
 }
 \value{
 Invisibly returns \code{NULL}.
@@ -34,13 +37,13 @@ Invisibly returns \code{NULL}.
 \description{
 Purpose:
 \itemize{
-\item Capture one expression and enqueue it for background execution.
+\item Enqueue one function-call style task with explicit arguments.
 }
 }
 \examples{
-init_queue(max_concurrent = 1)
+init_queue(max_slots = 1)
 if (interactive() && requireNamespace("callr", quietly = TRUE)) {
   on.exit(shutdown_queue(), add = TRUE)
-  submit_task({ 1 + 1 }, label = "toy_expr")
+  submit_task(fun = sum, args = list(1, 2, 3), label = "toy_call")
 }
 }

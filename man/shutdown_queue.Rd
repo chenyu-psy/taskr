@@ -17,6 +17,6 @@ task files.
 }
 }
 \examples{
-init_queue(max_concurrent = 1)
+init_queue(max_slots = 1)
 shutdown_queue()
 }

@@ -41,7 +41,7 @@ test_that("split_dashboard_tasks applies requested sorting rules", {
   tab <- data.frame(
     id = c("r_old", "r_new", "q_low_old", "q_high_new", "d_old", "f_new"),
     label = c("r_old", "r_new", "q_low_old", "q_high_new", "d_old", "f_new"),
-    status = c("running", "running", "queued", "queued", "done", "failed"),
+    status = c("running", "running", "queued", "queued", "completed", "failed"),
     priority = c(0L, 0L, 1L, 3L, 0L, 0L),
     submit_time = c(now - 60, now - 30, now - 300, now - 100, now - 500, now - 400),
     start_time = c(now - 100, now - 20, NA, NA, now - 200, now - 150),
@@ -53,7 +53,7 @@ test_that("split_dashboard_tasks applies requested sorting rules", {
 
   expect_identical(out$running$id, c("r_new", "r_old"))
   expect_identical(out$queued$id, c("q_high_new", "q_low_old"))
-  expect_identical(out$done$id, c("f_new", "d_old"))
+  expect_identical(out$finished$id, c("f_new", "d_old"))
 })
 
 test_that("dashboard_summary_metrics returns slot and completion ratios", {
@@ -61,7 +61,7 @@ test_that("dashboard_summary_metrics returns slot and completion ratios", {
 
   tab <- data.frame(
     id = paste0("task_", 1:5),
-    status = c("running", "queued", "done", "failed", "cancelled"),
+    status = c("running", "queued", "completed", "failed", "cancelled"),
     stringsAsFactors = FALSE
   )
 
@@ -70,7 +70,7 @@ test_that("dashboard_summary_metrics returns slot and completion ratios", {
   expect_equal(summary$total, 5)
   expect_equal(summary$running, 1)
   expect_equal(summary$queued, 1)
-  expect_equal(summary$done, 1)
+  expect_equal(summary$completed, 1)
   expect_equal(summary$failed, 1)
   expect_equal(summary$cancelled, 1)
   expect_equal(summary$slots_used, 1)
@@ -101,21 +101,21 @@ test_that("dashboard_log_text returns stdout/stderr tail blocks", {
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   item <- make_dashboard_item(
     id = "task_log_001",
     label = "log_demo",
-    status = "done",
+    status = "completed",
     submit_time = Sys.time() - 10,
     end_time = Sys.time() - 1
   )
   item$stdout_buffer <- paste0("line_1\nline_2\nline_3\nline_4")
   item$stderr_buffer <- paste0("err_1\nerr_2")
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
-  pkg_env$scheduler$done <- list(task_log_001 = item)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(task_log_001 = item)
 
   txt <- dashboard_log_text("task_log_001", tail_n = 2)
 
@@ -204,7 +204,7 @@ test_that("dashboard_stan_chain_progress parses chain rows from logs", {
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   item <- make_dashboard_item(
@@ -220,7 +220,7 @@ test_that("dashboard_stan_chain_progress parses chain rows from logs", {
     sep = "\n"
   )
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$running <- list(task_chain_001 = item)
 
   tab <- dashboard_stan_chain_progress("task_chain_001")
@@ -248,7 +248,7 @@ test_that("dashboard_stan_chain_progress sees logs consumed by task status updat
   recycle_running_tasks <- getFromNamespace("recycle_running_tasks", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   fake_task <- new.env(parent = emptyenv())
@@ -279,7 +279,7 @@ test_that("dashboard_stan_chain_progress sees logs consumed by task status updat
   )
   item$task <- fake_task
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$running <- list(task_sync_001 = item)
   pkg_env$scheduler <- recycle_running_tasks(pkg_env$scheduler, now = Sys.time())
 
@@ -417,7 +417,7 @@ test_that("dashboard_parse_task_progress returns generic parsed fraction when no
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   item <- make_dashboard_item(
@@ -429,7 +429,7 @@ test_that("dashboard_parse_task_progress returns generic parsed fraction when no
   )
   item$stdout_buffer <- "Epoch 3/10"
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$running <- list(task_generic_001 = item)
 
   out <- dashboard_parse_task_progress("task_generic_001")

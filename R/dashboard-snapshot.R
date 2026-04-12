@@ -21,7 +21,7 @@ write_dashboard_snapshot <- function(now = Sys.time()) {
 
   payload <- list(
     generated_at = format(now, "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
-    max_concurrent = as.integer(state$capacity$slots %||% 1L),
+    max_slots = as.integer(state$capacity$slots %||% 1L),
     tasks = tab
   )
 
@@ -34,7 +34,7 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
   if (!is.character(path) || length(path) != 1 || is.na(path) || !nzchar(path) || !file.exists(path)) {
     return(list(
       generated_at = NA_character_,
-      max_concurrent = 1L,
+      max_slots = 1L,
       tasks = empty_dashboard_table()
     ))
   }
@@ -47,7 +47,7 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
   if (is.null(payload)) {
     return(list(
       generated_at = NA_character_,
-      max_concurrent = 1L,
+      max_slots = 1L,
       tasks = empty_dashboard_table()
     ))
   }
@@ -110,7 +110,7 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
 
   list(
     generated_at = payload$generated_at %||% NA_character_,
-    max_concurrent = as.integer(payload$max_concurrent %||% 1L),
+    max_slots = as.integer(payload$max_slots %||% 1L),
     tasks = tab
   )
 }

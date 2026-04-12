@@ -28,12 +28,12 @@
 # 1) obj$status()
 # - Return: character(1), one of:
 #   - "running"
-#   - "done"
+#   - "completed"
 #   - "failed"
 #   - "cancelled"
 # - Meaning:
 #   - "running": task has been launched and not reached a terminal state.
-#   - "done": task call finished successfully and expected result is available.
+#   - "completed": task call finished successfully and expected result is available.
 #   - "failed": task call finished with error or subprocess ended unexpectedly.
 #   - "cancelled": task was explicitly cancelled/cancelled.
 #

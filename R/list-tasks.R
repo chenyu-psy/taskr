@@ -1,7 +1,7 @@
 # Task Listing API (User-Facing)
 #
 # Purpose:
-# - Provide one query entrypoint for task records in queue/running/done states.
+# - Provide one query entrypoint for task records in queue/running/finished states.
 # - Return a stable data.frame shape so downstream code can rely on columns.
 
 empty_task_table <- function() {
@@ -80,7 +80,7 @@ task_item_to_row <- function(item, now = Sys.time()) {
 }
 
 collect_scheduler_items <- function(state) {
-  c(state$queue %||% list(), unname(state$running %||% list()), unname(state$done %||% list()))
+  c(state$queue %||% list(), unname(state$running %||% list()), unname(state$finished %||% list()))
 }
 
 sort_task_table <- function(tab) {
@@ -88,7 +88,7 @@ sort_task_table <- function(tab) {
     return(tab)
   }
 
-  status_levels <- c("done", "running", "queued", "failed", "cancelled")
+  status_levels <- c("completed", "running", "queued", "failed", "cancelled")
   status_rank <- match(tab$status, status_levels)
   status_rank[is.na(status_rank)] <- length(status_levels) + 1L
 
@@ -110,7 +110,7 @@ validate_task_filter <- function(x, name) {
 #' List Tasks in the Current Scheduler
 #'
 #' Purpose:
-#' - Return task records from queue, running, and done states in one table.
+#' - Return task records from queue, running, and completed states in one table.
 #' - Optionally filter by `id`, `label`, and/or `status` using AND logic.
 #'
 #' @param id Optional character vector of task ids to include.
@@ -118,10 +118,10 @@ validate_task_filter <- function(x, name) {
 #' @param status Optional character vector of statuses to include.
 #' @return A `data.frame` with one row per matched task.
 #' @examples
-#' init_queue(max_concurrent = 1)
-#' list_tasks()
+#' init_queue(max_slots = 1)
+#' get_task_overview()
 #' @export
-list_tasks <- function(id = NULL, label = NULL, status = NULL) {
+get_task_overview <- function(id = NULL, label = NULL, status = NULL) {
   validate_task_filter(id, "id")
   validate_task_filter(label, "label")
   validate_task_filter(status, "status")
@@ -132,7 +132,7 @@ list_tasks <- function(id = NULL, label = NULL, status = NULL) {
 
   pkg_env$scheduler <- recycle_running_tasks(pkg_env$scheduler, now = Sys.time())
   if (scheduler_has_work(pkg_env$scheduler)) {
-    start_scheduler_internal()
+    start_scheduler()
   }
 
   items <- collect_scheduler_items(pkg_env$scheduler)

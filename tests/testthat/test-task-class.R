@@ -198,9 +198,9 @@ test_that("Task read_error appends stderr text", {
   expect_identical(task$stderr_buffer, "warn 1\nwarn 2\n")
 })
 
-test_that("Task status becomes done when the result file exists", {
+test_that("Task status becomes completed when the result file exists", {
   result_path <- tempfile(fileext = ".rds")
-  saveRDS("done", result_path)
+  saveRDS("completed", result_path)
   fake_process <- make_fake_terminal_process(alive = FALSE)
   task <- taskr:::Task$new(
     id = "task_009",
@@ -210,7 +210,7 @@ test_that("Task status becomes done when the result file exists", {
   )
   taskr:::register_active_task(task)
 
-  expect_equal(task$status(), "done")
+  expect_equal(task$status(), "completed")
   expect_false(exists("task_009", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
 
   unlink(result_path)

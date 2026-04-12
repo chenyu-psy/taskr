@@ -15,20 +15,20 @@ make_kill_tracking_task <- function(id = "task_run") {
 test_that("init_queue creates scheduler state with requested capacity", {
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 3)
+  taskr::init_queue(max_slots = 3)
 
   expect_true(!is.null(pkg_env$scheduler))
   expect_equal(pkg_env$scheduler$capacity$slots, 3L)
   expect_equal(pkg_env$scheduler$next_id, 1L)
   expect_length(pkg_env$scheduler$queue, 0)
   expect_length(pkg_env$scheduler$running, 0)
-  expect_length(pkg_env$scheduler$done, 0)
+  expect_length(pkg_env$scheduler$finished, 0)
 })
 
-test_that("init_queue validates max_concurrent", {
-  expect_error(taskr::init_queue(max_concurrent = 0), "must be >= 1")
-  expect_error(taskr::init_queue(max_concurrent = NA_real_), "single positive integer")
-  expect_error(taskr::init_queue(max_concurrent = c(1, 2)), "single positive integer")
+test_that("init_queue validates max_slots", {
+  expect_error(taskr::init_queue(max_slots = 0), "must be >= 1")
+  expect_error(taskr::init_queue(max_slots = NA_real_), "single positive integer")
+  expect_error(taskr::init_queue(max_slots = c(1, 2)), "single positive integer")
 })
 
 test_that("shutdown_queue clears scheduler state and temp files", {
@@ -36,7 +36,7 @@ test_that("shutdown_queue clears scheduler state and temp files", {
   register_active_task <- getFromNamespace("register_active_task", "taskr")
   task_tmpfile <- getFromNamespace("task_tmpfile", "taskr")
 
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
 
   fake_task <- make_kill_tracking_task("task_001")
   pkg_env$scheduler$running <- list(

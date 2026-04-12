@@ -20,6 +20,6 @@ Purpose:
 }
 }
 \examples{
-init_queue(max_concurrent = 1)
+init_queue(max_slots = 1)
 # cancel_task("task_001")
 }

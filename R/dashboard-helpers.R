@@ -83,13 +83,13 @@ normalize_dashboard_posixct <- function(x) {
   suppressWarnings(as.POSIXct(x, origin = "1970-01-01", tz = "UTC"))
 }
 
-# Collect queue/running/done task items into one flat list.
+# Collect queue/running/finished task items into one flat list.
 # Args:
 # - state: Scheduler state list.
 # Returns:
 # - List of task item lists.
 collect_dashboard_items <- function(state) {
-  c(state$queue %||% list(), unname(state$running %||% list()), unname(state$done %||% list()))
+  c(state$queue %||% list(), unname(state$running %||% list()), unname(state$finished %||% list()))
 }
 
 # Build one snapshot table from a provided scheduler state.
@@ -161,7 +161,7 @@ extract_dashboard_snapshot <- function(now = Sys.time()) {
 
   pkg_env$scheduler <- recycle_running_tasks(pkg_env$scheduler, now = now)
   if (scheduler_has_work(pkg_env$scheduler)) {
-    start_scheduler_internal()
+    start_scheduler()
   }
 
   dashboard_snapshot_table_from_state(pkg_env$scheduler)
@@ -273,23 +273,23 @@ filter_dashboard_tasks <- function(tab, query = "") {
   tab[keep, , drop = FALSE]
 }
 
-# Split dashboard table into running/queued/done views with requested sorting.
+# Split dashboard table into running/queued/finished views with requested sorting.
 # Args:
 # - tab: Dashboard table.
 # Returns:
-# - Named list with data.frames: running, queued, done.
+# - Named list with data.frames: running, queued, finished.
 split_dashboard_tasks <- function(tab) {
   if (nrow(tab) == 0) {
     return(list(
       running = tab,
       queued = tab,
-      done = tab
+      finished = tab
     ))
   }
 
   running <- tab[tab$status == "running", , drop = FALSE]
   queued <- tab[tab$status == "queued", , drop = FALSE]
-  done <- tab[tab$status %in% c("done", "failed", "cancelled"), , drop = FALSE]
+  finished <- tab[tab$status %in% c("completed", "failed", "cancelled"), , drop = FALSE]
 
   if (nrow(running) > 0) {
     running <- running[order(running$start_time, decreasing = TRUE), , drop = FALSE]
@@ -299,11 +299,11 @@ split_dashboard_tasks <- function(tab) {
     queued <- queued[order(-queued$priority, queued$submit_time), , drop = FALSE]
   }
 
-  if (nrow(done) > 0) {
-    done <- done[order(done$end_time, decreasing = TRUE), , drop = FALSE]
+  if (nrow(finished) > 0) {
+    finished <- finished[order(finished$end_time, decreasing = TRUE), , drop = FALSE]
   }
 
-  list(running = running, queued = queued, done = done)
+  list(running = running, queued = queued, finished = finished)
 }
 
 # Compute summary counters and progress ratios for top summary panel.
@@ -315,12 +315,12 @@ split_dashboard_tasks <- function(tab) {
 dashboard_summary_metrics <- function(tab, max_slots = 1L) {
   n_running <- sum(tab$status == "running")
   n_queued <- sum(tab$status == "queued")
-  n_done <- sum(tab$status == "done")
+  n_completed <- sum(tab$status == "completed")
   n_failed <- sum(tab$status == "failed")
   n_cancelled <- sum(tab$status == "cancelled")
   n_total <- nrow(tab)
 
-  terminal_count <- n_done + n_failed + n_cancelled
+  terminal_count <- n_completed + n_failed + n_cancelled
   completion_ratio <- if (n_total == 0) 0 else terminal_count / n_total
 
   slots <- max(1L, as.integer(max_slots %||% 1L))
@@ -330,7 +330,7 @@ dashboard_summary_metrics <- function(tab, max_slots = 1L) {
     total = n_total,
     running = n_running,
     queued = n_queued,
-    done = n_done,
+    completed = n_completed,
     failed = n_failed,
     cancelled = n_cancelled,
     slots_used = n_running,
@@ -351,7 +351,7 @@ status_badge_class <- function(status) {
     canceling = "status-failed",
     running = "status-running",
     queued = "status-queued",
-    done = "status-done",
+    completed = "status-completed",
     failed = "status-failed",
     cancelled = "status-cancelled",
     "status-unknown"
@@ -402,7 +402,7 @@ dashboard_log_text <- function(task_id, tail_n = 200L) {
     return("Select one task card to view logs.")
   }
 
-  logs <- tryCatch(task_logs(task_id), error = function(e) NULL)
+  logs <- tryCatch(get_task_log(task_id), error = function(e) NULL)
   if (is.null(logs)) {
     return("Task logs are not available for the selected task.")
   }
@@ -750,7 +750,7 @@ dashboard_parse_task_progress <- function(task_id) {
     return(out)
   }
 
-  logs <- tryCatch(task_logs(task_id), error = function(e) NULL)
+  logs <- tryCatch(get_task_log(task_id), error = function(e) NULL)
   if (is.null(logs)) {
     return(out)
   }
@@ -773,7 +773,7 @@ dashboard_parse_task_progress <- function(task_id) {
 
 # Parse per-chain Stan/model progress from one task's logs.
 # Args:
-# - task_id: Task id used by `task_logs()`.
+# - task_id: Task id used by `get_task_log()`.
 # Returns:
 # - data.frame with columns `chain`, `progress`, and `phase`.
 dashboard_stan_chain_progress <- function(task_id) {

@@ -4,10 +4,10 @@
 \alias{init_queue}
 \title{Initialize or Reset the Task Queue}
 \usage{
-init_queue(max_concurrent = 1L)
+init_queue(max_slots = 1L)
 }
 \arguments{
-\item{max_concurrent}{Integer number of task slots available at once.}
+\item{max_slots}{Integer number of task slots available at once.}
 }
 \value{
 Invisibly returns \code{NULL}.
@@ -20,5 +20,5 @@ Purpose:
 }
 }
 \examples{
-init_queue(max_concurrent = 2)
+init_queue(max_slots = 2)
 }

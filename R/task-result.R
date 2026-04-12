@@ -19,10 +19,10 @@ validate_id_or_label <- function(id_or_label) {
 #' @param id_or_label Task id or label used to identify one task.
 #' @return The stored task result object, or `NULL` when output saving is off.
 #' @examples
-#' init_queue(max_concurrent = 1)
-#' # task_result("task_001")
+#' init_queue(max_slots = 1)
+#' # get_task_result("task_001")
 #' @export
-task_result <- function(id_or_label) {
+get_task_result <- function(id_or_label) {
   validate_id_or_label(id_or_label)
 
   if (is.null(pkg_env$scheduler)) {
@@ -30,7 +30,7 @@ task_result <- function(id_or_label) {
   }
 
   repeat {
-    pkg_env$scheduler <- tick(pkg_env$scheduler)
+    pkg_env$scheduler <- update_queue(pkg_env$scheduler)
     match <- resolve_task_reference(pkg_env$scheduler, id_or_label = id_or_label)
     item <- if (is.null(match)) NULL else match$item
 
@@ -45,7 +45,7 @@ task_result <- function(id_or_label) {
       next
     }
 
-    if (identical(status, "done")) {
+    if (identical(status, "completed")) {
       if (identical(item$output %||% "all", "none")) {
         warning("Task completed with `output = \"none\"`; no result file to read.")
         return(NULL)

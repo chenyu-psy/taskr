@@ -1,4 +1,4 @@
-make_result_running_task <- function(status_seq = c("running", "done")) {
+make_result_running_task <- function(status_seq = c("running", "completed")) {
   state <- new.env(parent = emptyenv())
   state$idx <- 1L
 
@@ -19,111 +19,111 @@ make_result_running_task <- function(status_seq = c("running", "done")) {
   )
 }
 
-test_that("task_result returns done task result by id", {
-  task_result <- getFromNamespace("task_result", "taskr")
+test_that("get_task_result returns completed task result by id", {
+  get_task_result <- getFromNamespace("get_task_result", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   path <- tempfile(fileext = ".rds")
   saveRDS(list(value = 7L), path)
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
-  pkg_env$scheduler$done <- list(
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(
     task_001 = list(
       id = "task_001",
       label = "fit_a",
-      status = "done",
+      status = "completed",
       output = "all",
       result_path = path
     )
   )
 
-  out <- task_result("task_001")
+  out <- get_task_result("task_001")
   expect_equal(out$value, 7L)
 })
 
-test_that("task_result can select by label", {
-  task_result <- getFromNamespace("task_result", "taskr")
+test_that("get_task_result can select by label", {
+  get_task_result <- getFromNamespace("get_task_result", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   path <- tempfile(fileext = ".rds")
   saveRDS(11L, path)
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
-  pkg_env$scheduler$done <- list(
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(
     task_010 = list(
       id = "task_010",
       label = "label_a",
-      status = "done",
+      status = "completed",
       output = "all",
       result_path = path
     )
   )
 
-  expect_equal(task_result("label_a"), 11L)
+  expect_equal(get_task_result("label_a"), 11L)
 })
 
-test_that("task_result warns and returns NULL when output is none", {
-  task_result <- getFromNamespace("task_result", "taskr")
+test_that("get_task_result warns and returns NULL when output is none", {
+  get_task_result <- getFromNamespace("get_task_result", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
-  pkg_env$scheduler$done <- list(
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(
     task_011 = list(
       id = "task_011",
       label = "side_effect",
-      status = "done",
+      status = "completed",
       output = "none",
       result_path = NULL
     )
   )
 
   expect_warning(
-    expect_null(task_result("task_011")),
+    expect_null(get_task_result("task_011")),
     "output = \"none\""
   )
 })
 
-test_that("task_result errors clearly for failed and cancelled tasks", {
-  task_result <- getFromNamespace("task_result", "taskr")
+test_that("get_task_result errors clearly for failed and cancelled tasks", {
+  get_task_result <- getFromNamespace("get_task_result", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
-  pkg_env$scheduler$done <- list(
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(
     task_020 = list(id = "task_020", label = "bad", status = "failed", error = "boom"),
     task_021 = list(id = "task_021", label = "cancelled", status = "cancelled")
   )
 
-  expect_error(task_result("task_020"), "boom")
-  expect_error(task_result("task_021"), "cancelled")
+  expect_error(get_task_result("task_020"), "boom")
+  expect_error(get_task_result("task_021"), "cancelled")
 })
 
-test_that("task_result waits for running task to finish", {
-  task_result <- getFromNamespace("task_result", "taskr")
+test_that("get_task_result waits for running task to finish", {
+  get_task_result <- getFromNamespace("get_task_result", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   path <- tempfile(fileext = ".rds")
@@ -136,33 +136,33 @@ test_that("task_result waits for running task to finish", {
     output = "all",
     result_path = path,
     resources = list(slots = 1L),
-    task = make_result_running_task(status_seq = c("running", "done")),
+    task = make_result_running_task(status_seq = c("running", "completed")),
     submit_time = Sys.time(),
     start_time = Sys.time(),
     end_time = as.POSIXct(NA)
   )
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$running <- list(task_030 = running_item)
 
-  expect_identical(task_result("task_030"), "done_later")
+  expect_identical(get_task_result("task_030"), "done_later")
 })
 
-test_that("task_result reports missing tasks and ambiguous labels", {
-  task_result <- getFromNamespace("task_result", "taskr")
+test_that("get_task_result reports missing tasks and ambiguous labels", {
+  get_task_result <- getFromNamespace("get_task_result", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
-  taskr::init_queue(max_concurrent = 1)
+  taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
-  pkg_env$scheduler <- new_scheduler_state(max_concurrent = 1)
-  pkg_env$scheduler$done <- list(
-    task_100 = list(id = "task_100", label = "dup", status = "done", output = "none"),
-    task_101 = list(id = "task_101", label = "dup", status = "done", output = "none")
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(
+    task_100 = list(id = "task_100", label = "dup", status = "completed", output = "none"),
+    task_101 = list(id = "task_101", label = "dup", status = "completed", output = "none")
   )
 
-  expect_error(task_result("missing"), "Task not found")
-  expect_error(task_result("dup"), "More than one task matches")
+  expect_error(get_task_result("missing"), "Task not found")
+  expect_error(get_task_result("dup"), "More than one task matches")
 })

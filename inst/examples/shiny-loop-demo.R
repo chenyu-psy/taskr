@@ -2,7 +2,7 @@
 #
 # Purpose:
 # - Submit a small batch of background tasks with progress updates.
-# - Open `queue_dashboard()` so users can visually verify queue behavior.
+# - Open `launch_dashboard()` so users can visually verify queue behavior.
 #
 # How to run:
 # - In an interactive R session:
@@ -25,7 +25,7 @@ pkgload::load_all(export_all = FALSE, quiet = TRUE)
 set.seed(123)
 
 taskr::shutdown_queue()
-taskr::init_queue(max_concurrent = 1)
+taskr::init_queue(max_slots = 1)
 
 demo_conditions <- c(
   "chain_stan_like",
@@ -40,13 +40,15 @@ demo_conditions <- c(
 
 # Each demo runs for 10-20 seconds to keep the dashboard easy to inspect.
 wait_plan <- sample(10:20, size = length(demo_conditions), replace = TRUE)
+# Stagger submissions so new tasks appear gradually in the dashboard.
+submit_gap_plan <- sample(3:5, size = length(demo_conditions) - 1L, replace = TRUE)
 
 for (i in seq_along(demo_conditions)) {
   idx <- as.integer(i)
   condition <- demo_conditions[[i]]
   wait_sec <- as.integer(wait_plan[[i]])
 
-  taskr::submit_task(
+  taskr::submit_code(
     expr = {
       for (s in seq_len(wait_sec)) {
         Sys.sleep(1)
@@ -106,7 +108,7 @@ for (i in seq_along(demo_conditions)) {
         flush(stdout())
       }
 
-      sprintf("task_%02d (%s) done after %d sec", idx, condition, wait_sec)
+      sprintf("task_%02d (%s) completed after %d sec", idx, condition, wait_sec)
     },
     label = sprintf("demo%02d_%s", idx, condition),
     priority = 1L,
@@ -116,6 +118,12 @@ for (i in seq_along(demo_conditions)) {
       workdir = getwd()
     )
   )
+
+  if (i < length(demo_conditions)) {
+    gap_sec <- as.integer(submit_gap_plan[[i]])
+    message(sprintf("Submitted %s; waiting %d sec before next submit.", condition, gap_sec))
+    Sys.sleep(gap_sec)
+  }
 }
 
 message("Demo tasks submitted.")

@@ -105,10 +105,10 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
 
   existing <- pkg_env$dashboard_process %||% NULL
   if (dashboard_process_is_alive(existing)) {
-    url <- pkg_env$dashboard_url %||% ""
-    if (nzchar(url)) {
+      url <- pkg_env$dashboard_url %||% ""
+      if (nzchar(url)) {
       if (isTRUE(announce)) {
-        cat(sprintf("\nListening on %s\n", url))
+        cat(sprintf("\nDashboard available at: %s\n", url))
       }
       if (isTRUE(focus_existing)) {
         dashboard_open_viewer(url, open_viewer = open_viewer)
@@ -184,13 +184,13 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
       )
       warning(paste(msg, collapse = "\n"))
     } else {
-      warning("Dashboard started but did not become reachable at ", url, " within 6 seconds.")
+      warning("Dashboard started but fid not become reachable at ", url, " within 6 seconds.")
     }
     return(invisible(url))
   }
 
   if (isTRUE(announce)) {
-    cat(sprintf("\nListening on %s\n", url))
+    cat(sprintf("\nDashboard available at: %s\n", url))
   }
   dashboard_open_viewer(url, open_viewer = open_viewer)
   invisible(url)
