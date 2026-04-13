@@ -13,6 +13,7 @@ empty_dashboard_table <- function() {
     id = character(),
     label = character(),
     status = character(),
+    slots = integer(),
     priority = integer(),
     progress = numeric(),
     message = character(),
@@ -126,6 +127,19 @@ coalesce_label <- function(label, id) {
   label
 }
 
+# Normalize one task slot declaration for dashboard display math.
+# Args:
+# - item: Task item list from scheduler state.
+# Returns:
+# - Integer scalar >= 1. Falls back to 1 when missing/invalid.
+dashboard_item_slots <- function(item) {
+  slots <- suppressWarnings(as.integer(item$resources$slots %||% 1L))
+  if (is.na(slots) || slots < 1L) {
+    return(1L)
+  }
+  slots
+}
+
 # Convert one scheduler task item to a single dashboard table row.
 # Args:
 # - item: Task item list from scheduler state.
@@ -136,6 +150,7 @@ dashboard_item_to_row <- function(item) {
     id = as.character(item$id %||% NA_character_),
     label = as.character(coalesce_label(item$label %||% NA_character_, item$id %||% NA_character_)),
     status = as.character(item$status %||% NA_character_),
+    slots = dashboard_item_slots(item),
     priority = as.integer(item$priority %||% 0L),
     progress = as.numeric(item$progress %||% NA_real_),
     message = as.character(item$message %||% ""),
@@ -323,8 +338,21 @@ dashboard_summary_metrics <- function(tab, max_slots = 1L) {
   terminal_count <- n_completed + n_failed + n_cancelled
   completion_ratio <- if (n_total == 0) 0 else terminal_count / n_total
 
+  # Backward compatibility: older snapshots may not have a `slots` column.
+  if ("slots" %in% names(tab)) {
+    running_slots <- suppressWarnings(as.integer(tab$slots[tab$status == "running"]))
+    if (length(running_slots) == 0) {
+      slots_used <- 0L
+    } else {
+      running_slots[is.na(running_slots) | running_slots < 1L] <- 1L
+      slots_used <- sum(running_slots)
+    }
+  } else {
+    slots_used <- n_running
+  }
+
   slots <- max(1L, as.integer(max_slots %||% 1L))
-  slot_ratio <- min(1, n_running / slots)
+  slot_ratio <- min(1, slots_used / slots)
 
   list(
     total = n_total,
@@ -333,7 +361,7 @@ dashboard_summary_metrics <- function(tab, max_slots = 1L) {
     completed = n_completed,
     failed = n_failed,
     cancelled = n_cancelled,
-    slots_used = n_running,
+    slots_used = slots_used,
     slots_total = slots,
     slot_ratio = slot_ratio,
     completion_ratio = completion_ratio

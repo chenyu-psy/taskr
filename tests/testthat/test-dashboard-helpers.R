@@ -62,6 +62,7 @@ test_that("dashboard_summary_metrics returns slot and completion ratios", {
   tab <- data.frame(
     id = paste0("task_", 1:5),
     status = c("running", "queued", "completed", "failed", "cancelled"),
+    slots = c(3L, 1L, 1L, 1L, 1L),
     stringsAsFactors = FALSE
   )
 
@@ -73,10 +74,25 @@ test_that("dashboard_summary_metrics returns slot and completion ratios", {
   expect_equal(summary$completed, 1)
   expect_equal(summary$failed, 1)
   expect_equal(summary$cancelled, 1)
-  expect_equal(summary$slots_used, 1)
+  expect_equal(summary$slots_used, 3)
   expect_equal(summary$slots_total, 4)
-  expect_equal(summary$slot_ratio, 0.25)
+  expect_equal(summary$slot_ratio, 0.75)
   expect_equal(summary$completion_ratio, 3 / 5)
+})
+
+test_that("dashboard_summary_metrics falls back to running count when slots column is absent", {
+  dashboard_summary_metrics <- getFromNamespace("dashboard_summary_metrics", "taskr")
+
+  tab <- data.frame(
+    id = c("task_001", "task_002"),
+    status = c("running", "queued"),
+    stringsAsFactors = FALSE
+  )
+
+  summary <- dashboard_summary_metrics(tab, max_slots = 4L)
+
+  expect_equal(summary$slots_used, 1)
+  expect_equal(summary$slot_ratio, 0.25)
 })
 
 test_that("filter_dashboard_tasks matches id and label case-insensitively", {
