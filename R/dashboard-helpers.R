@@ -449,10 +449,10 @@ dashboard_log_text <- function(task_id, tail_n = 200L) {
   stderr_text <- if (length(stderr_lines) == 0) "(empty)" else paste(stderr_lines, collapse = "\n")
 
   paste(
-    "=== STDOUT (tail) ===",
+    "=== Output (latest lines) ===",
     stdout_text,
     "",
-    "=== STDERR (tail) ===",
+    "=== Messages & Errors (latest lines) ===",
     stderr_text,
     sep = "\n"
   )
@@ -837,10 +837,10 @@ dashboard_log_text_from_row <- function(task, tail_n = 200L) {
   stderr_text <- if (length(stderr_lines) == 0) "(empty)" else paste(stderr_lines, collapse = "\n")
 
   paste(
-    "=== STDOUT (tail) ===",
+    "=== Output (latest lines) ===",
     stdout_text,
     "",
-    "=== STDERR (tail) ===",
+    "=== Messages & Errors (latest lines) ===",
     stderr_text,
     sep = "\n"
   )

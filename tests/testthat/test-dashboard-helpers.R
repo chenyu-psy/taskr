@@ -111,7 +111,7 @@ test_that("filter_dashboard_tasks matches id and label case-insensitively", {
   expect_identical(out_b$id, "task_002")
 })
 
-test_that("dashboard_log_text returns stdout/stderr tail blocks", {
+test_that("dashboard_log_text returns readable output/error tail blocks", {
   dashboard_log_text <- getFromNamespace("dashboard_log_text", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
@@ -135,11 +135,11 @@ test_that("dashboard_log_text returns stdout/stderr tail blocks", {
 
   txt <- dashboard_log_text("task_log_001", tail_n = 2)
 
-  expect_match(txt, "=== STDOUT \\(tail\\) ===")
+  expect_match(txt, "=== Output \\(latest lines\\) ===")
   expect_match(txt, "line_3")
   expect_match(txt, "line_4")
   expect_false(grepl("line_1", txt, fixed = TRUE))
-  expect_match(txt, "=== STDERR \\(tail\\) ===")
+  expect_match(txt, "=== Messages & Errors \\(latest lines\\) ===")
   expect_match(txt, "err_1")
   expect_match(txt, "err_2")
 })

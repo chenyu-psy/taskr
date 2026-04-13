@@ -25,7 +25,7 @@ pkgload::load_all(export_all = FALSE, quiet = TRUE)
 set.seed(123)
 
 taskr::shutdown_queue()
-taskr::init_queue(max_slots = 1)
+taskr::init_queue(max_slots = 6)
 
 demo_conditions <- c(
   "chain_stan_like",
@@ -40,6 +40,8 @@ demo_conditions <- c(
 
 # Each demo runs for 10-20 seconds to keep the dashboard easy to inspect.
 wait_plan <- sample(10:20, size = length(demo_conditions), replace = TRUE)
+# Random slot demand (1-4) per task to demonstrate queue resource scheduling.
+slot_plan <- sample(1:4, size = length(demo_conditions), replace = TRUE)
 # Stagger submissions so new tasks appear gradually in the dashboard.
 submit_gap_plan <- sample(3:5, size = length(demo_conditions) - 1L, replace = TRUE)
 
@@ -47,6 +49,7 @@ for (i in seq_along(demo_conditions)) {
   idx <- as.integer(i)
   condition <- demo_conditions[[i]]
   wait_sec <- as.integer(wait_plan[[i]])
+  task_slots <- as.integer(slot_plan[[i]])
 
   taskr::submit_code(
     expr = {
@@ -112,6 +115,7 @@ for (i in seq_along(demo_conditions)) {
     },
     label = sprintf("demo%02d_%s", idx, condition),
     priority = 1L,
+    resources = list(slots = task_slots),
     import = list(
       env = c("idx", "condition", "wait_sec"),
       packages = character(),
