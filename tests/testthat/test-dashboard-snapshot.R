@@ -60,7 +60,11 @@ test_that("dashboard snapshot round-trip preserves local elapsed timing", {
   }, add = TRUE)
 
   pkg_env$dashboard_snapshot_path <- tempfile(fileext = ".json")
-  now <- as.POSIXct("2026-04-11 00:00:00", tz = "America/Chicago")
+  local_tz <- Sys.timezone()
+  if (is.null(local_tz) || length(local_tz) == 0 || is.na(local_tz) || !nzchar(local_tz)) {
+    local_tz <- ""
+  }
+  now <- as.POSIXct("2026-04-11 00:00:00", tz = local_tz)
 
   item <- list(
     id = "task_local_001",
