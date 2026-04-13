@@ -21,4 +21,5 @@ jobs:
       - name: Run R CMD check
         shell: bash
         run: |
+          Rscript -e 'if (!requireNamespace("rcmdcheck", quietly = TRUE)) install.packages("rcmdcheck", repos = "https://cloud.r-project.org")'
           Rscript -e 'rcmdcheck::rcmdcheck(args = c("--no-manual", "--as-cran"), error_on = "warning")'
