@@ -303,6 +303,11 @@ dashboard_scroll_js <- function() {
       "    if (!key) return;",
       "    window.__taskrScrollStore[key] = el.scrollTop || 0;",
       "  }",
+      "  function saveAll(scope) {",
+      "    var root = scope || document;",
+      "    var nodes = root.querySelectorAll ? root.querySelectorAll('[data-scroll-key]') : [];",
+      "    Array.prototype.forEach.call(nodes, function (el) { save(el); });",
+      "  }",
       "  function restore(scope) {",
       "    var root = scope || document;",
       "    var nodes = root.querySelectorAll ? root.querySelectorAll('[data-scroll-key]') : [];",
@@ -319,9 +324,13 @@ dashboard_scroll_js <- function() {
       "    if (!el || !el.getAttribute) return;",
       "    if (el.getAttribute('data-scroll-key')) save(el);",
       "  }, true);",
+      "  document.addEventListener('shiny:outputinvalidated', function (evt) {",
+      "    saveAll(evt && evt.target ? evt.target : document);",
+      "  });",
       "  document.addEventListener('shiny:value', function (evt) {",
       "    setTimeout(function () { restore(evt && evt.target ? evt.target : document); }, 0);",
       "  });",
+      "  saveAll(document);",
       "  document.addEventListener('shiny:connected', function () { restore(document); });",
       "  function formatDuration(sec) {",
       "    if (!isFinite(sec) || sec < 0) sec = 0;",
@@ -456,6 +465,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
     ui = queue_dashboard_ui(),
     server = function(input, output, session) {
       selected_id <- shiny::reactiveVal(NULL)
+      selected_panel_tracker <- shiny::reactiveVal(setNames(character(), character()))
       pending_running_cancel <- shiny::reactiveVal(NULL)
       refresh_nonce <- shiny::reactiveVal(0L)
       observed_select_ids <- shiny::reactiveVal(character())
@@ -529,6 +539,34 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 
       state_split <- shiny::reactive({
         split_dashboard_tasks(filtered_state_tasks())
+      })
+
+      shiny::observe({
+        tab <- state_tasks()
+        current_panel <- setNames(character(), character())
+
+        if (nrow(tab) > 0) {
+          status <- as.character(tab$status %||% character())
+          panel <- ifelse(
+            status %in% c("completed", "failed", "cancelled"),
+            "finished",
+            status
+          )
+          current_panel <- stats::setNames(as.character(panel), as.character(tab$id))
+        }
+
+        previous_panel <- selected_panel_tracker()
+        moved_ids <- intersect(names(previous_panel), names(current_panel))
+        moved_ids <- moved_ids[previous_panel[moved_ids] != current_panel[moved_ids]]
+
+        if (length(moved_ids) > 0) {
+          current_selected <- selected_id()
+          if (!is.null(current_selected) && current_selected %in% moved_ids) {
+            selected_id(NULL)
+          }
+        }
+
+        selected_panel_tracker(current_panel)
       })
 
       output$summary_progress <- shiny::renderUI({
