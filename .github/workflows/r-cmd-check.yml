@@ -13,6 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: r-lib/actions/setup-r@v2
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev
       - name: Install check dependencies
         shell: bash
         run: |
@@ -21,4 +26,5 @@ jobs:
       - name: Run R CMD check
         shell: bash
         run: |
+          Rscript -e 'if (!requireNamespace("rcmdcheck", quietly = TRUE)) install.packages("rcmdcheck", repos = "https://cloud.r-project.org")'
           Rscript -e 'rcmdcheck::rcmdcheck(args = c("--no-manual", "--as-cran"), error_on = "warning")'
