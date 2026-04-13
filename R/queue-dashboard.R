@@ -41,6 +41,7 @@ task_expand_block_ui <- function(task, expanded = FALSE) {
     shiny::tags$pre(
       class = "task-expand-logs",
       `data-scroll-key` = sprintf("logs-%s", task$id),
+      `data-log-task-id` = as.character(task$id),
       log_text
     )
   )
@@ -186,32 +187,39 @@ finished_task_card_ui <- function(task, expanded = FALSE) {
   )
 }
 
-# Render one dashboard column section from task rows.
+# Render one dashboard card list from task rows.
 # Args:
 # - tab: Subset table for one status block.
-# - title: Section title.
 # - renderer: Card renderer function for each row.
 # Returns:
-# - A section wrapper tag.
-column_cards_ui <- function(tab, title, renderer, header_right = NULL, subheader = NULL) {
+# - Card tag list (or one empty placeholder div).
+dashboard_card_list_ui <- function(tab, renderer) {
   cards <- if (nrow(tab) == 0) {
     shiny::div(class = "empty-block", "No tasks")
   } else {
     lapply(seq_len(nrow(tab)), function(i) renderer(tab[i, , drop = FALSE]))
   }
 
+  shiny::tagList(cards)
+}
+
+# Render one dashboard column shell with stable scroll container.
+# Args:
+# - header_output_id: Output id for the column header UI.
+# - body_output_id: Output id for card list UI.
+# - scroll_key: Stable key used by scroll-preserve JS.
+# - subheader_output_id: Optional output id for controls below header.
+# Returns:
+# - A section wrapper tag.
+dashboard_column_shell_ui <- function(header_output_id, body_output_id, scroll_key, subheader_output_id = NULL) {
   shiny::div(
     class = "dashboard-column",
-    shiny::div(
-      class = "dashboard-column-header",
-      shiny::div(class = "dashboard-column-title", sprintf("%s (%d)", title, nrow(tab))),
-      header_right
-    ),
-    subheader,
+    shiny::uiOutput(header_output_id),
+    if (!is.null(subheader_output_id)) shiny::uiOutput(subheader_output_id),
     shiny::div(
       class = "dashboard-column-body",
-      `data-scroll-key` = sprintf("col-%s", tolower(title)),
-      cards
+      `data-scroll-key` = scroll_key,
+      shiny::uiOutput(body_output_id, class = "dashboard-column-cards")
     )
   )
 }
@@ -251,6 +259,7 @@ dashboard_css <- function() {
       ".dashboard-column-title { margin-bottom: 0; }",
       ".dashboard-column-body { display: flex; flex-direction: column; gap: 8px; max-height: 35vh; overflow-y: auto; }",
       ".dashboard-column-body { align-items: flex-start; }",
+      ".dashboard-column-cards { width: 100%; display: flex; flex-direction: column; gap: 8px; }",
       ".task-card { border: 1px solid #d7e0e8; border-radius: 8px; padding: 9px; background: #fbfdff; }",
       ".task-card { display: flex; flex-direction: column; gap: 4px; }",
       ".task-card { width: min(100%, 980px); }",
@@ -363,6 +372,22 @@ dashboard_scroll_js <- function() {
       "  });",
       "  document.addEventListener('shiny:connected', function () { updateRunningElapsed(document); });",
       "  if (window.Shiny && window.Shiny.addCustomMessageHandler) {",
+      "    window.Shiny.addCustomMessageHandler('taskr_update_logs', function (msg) {",
+      "      var taskId = msg && msg.task_id ? String(msg.task_id) : '';",
+      "      if (!taskId || !document.querySelector) return;",
+      "      var node = document.querySelector('[data-log-task-id=\"' + taskId + '\"]');",
+      "      if (!node) return;",
+      "      var text = msg && Object.prototype.hasOwnProperty.call(msg, 'text') ? String(msg.text) : '';",
+      "      var bottomGap = node.scrollHeight - (node.scrollTop + node.clientHeight);",
+      "      var nearBottom = bottomGap <= 16;",
+      "      var prevTop = node.scrollTop;",
+      "      node.textContent = text;",
+      "      if (nearBottom) {",
+      "        node.scrollTop = node.scrollHeight;",
+      "      } else {",
+      "        node.scrollTop = prevTop;",
+      "      }",
+      "    });",
       "    window.Shiny.addCustomMessageHandler('taskr_focus_task', function (msg) {",
       "      var taskId = msg && msg.task_id ? String(msg.task_id) : '';",
       "      if (!taskId) return;",
@@ -427,17 +452,42 @@ queue_dashboard_ui <- function() {
           width = 12,
           shiny::div(
             class = "block-card",
-            shiny::uiOutput("running_cards")
+            dashboard_column_shell_ui(
+              header_output_id = "running_header",
+              body_output_id = "running_cards_body",
+              scroll_key = "col-running"
+            )
           )
         )
       ),
       shiny::fluidRow(
         class = "dashboard-row",
-        shiny::column(width = 12, shiny::div(class = "block-card", shiny::uiOutput("queued_cards")))
+        shiny::column(
+          width = 12,
+          shiny::div(
+            class = "block-card",
+            dashboard_column_shell_ui(
+              header_output_id = "queued_header",
+              body_output_id = "queued_cards_body",
+              scroll_key = "col-queued"
+            )
+          )
+        )
       ),
       shiny::fluidRow(
         class = "dashboard-row",
-        shiny::column(width = 12, shiny::div(class = "block-card", shiny::uiOutput("finished_cards")))
+        shiny::column(
+          width = 12,
+          shiny::div(
+            class = "block-card",
+            dashboard_column_shell_ui(
+              header_output_id = "finished_header",
+              subheader_output_id = "finished_subheader",
+              body_output_id = "finished_cards_body",
+              scroll_key = "col-finished"
+            )
+          )
+        )
       )
     )
   )
@@ -485,23 +535,22 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         )
       }
 
+      read_current_dashboard_tasks <- function() {
+        if (isTRUE(read_only)) {
+          return(read_snapshot_tasks()$tasks)
+        }
+        tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
+      }
+
       state_tasks <- shiny::reactivePoll(
         intervalMillis = 1000,
         session = session,
         checkFunc = function() {
-          tab <- if (isTRUE(read_only)) {
-            read_snapshot_tasks()$tasks
-          } else {
-            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
-          }
+          tab <- read_current_dashboard_tasks()
           paste0(dashboard_state_signature(tab), "-", refresh_nonce())
         },
         valueFunc = function() {
-          tab <- if (isTRUE(read_only)) {
-            read_snapshot_tasks()$tasks
-          } else {
-            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
-          }
+          tab <- read_current_dashboard_tasks()
           add_dashboard_derived_columns(tab, now = Sys.time())
         }
       )
@@ -510,20 +559,39 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         intervalMillis = 1000,
         session = session,
         checkFunc = function() {
-          tab <- if (isTRUE(read_only)) {
-            read_snapshot_tasks()$tasks
-          } else {
-            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
-          }
+          tab <- read_current_dashboard_tasks()
           paste0(dashboard_running_signature(tab), "-", refresh_nonce())
         },
         valueFunc = function() {
-          tab <- if (isTRUE(read_only)) {
-            read_snapshot_tasks()$tasks
-          } else {
-            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
-          }
+          tab <- read_current_dashboard_tasks()
           add_dashboard_derived_columns(tab, now = Sys.time())
+        }
+      )
+
+      expanded_running_log_text <- shiny::reactivePoll(
+        intervalMillis = 1000,
+        session = session,
+        checkFunc = function() {
+          task_id <- as.character(selected_id() %||% "")
+          if (!nzchar(task_id)) {
+            return("running-log:none")
+          }
+          tab <- read_current_dashboard_tasks()
+          paste0(dashboard_running_log_signature(tab, task_id = task_id), "-", refresh_nonce())
+        },
+        valueFunc = function() {
+          task_id <- as.character(selected_id() %||% "")
+          if (!nzchar(task_id)) {
+            return(NULL)
+          }
+
+          tab <- add_dashboard_derived_columns(read_current_dashboard_tasks(), now = Sys.time())
+          row <- tab[tab$id == task_id & tab$status == "running", , drop = FALSE]
+          if (nrow(row) == 0) {
+            return(NULL)
+          }
+
+          list(task_id = task_id, text = dashboard_log_text_from_row(row, tail_n = 120L))
         }
       )
 
@@ -596,7 +664,15 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         shiny::actionButton("clear_all_tasks", "Clear All", class = "btn btn-danger btn-sm")
       })
 
-      output$running_cards <- shiny::renderUI({
+      output$running_header <- shiny::renderUI({
+        running_n <- nrow(filtered_running_tasks())
+        shiny::div(
+          class = "dashboard-column-header",
+          shiny::div(class = "dashboard-column-title", sprintf("Running (%d)", running_n))
+        )
+      })
+
+      output$running_cards_body <- shiny::renderUI({
         expanded_task_id <- selected_id()
         running_tab <- filtered_running_tasks()
         now_ts <- Sys.time()
@@ -643,9 +719,8 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         }
         display_progress_cache(progress_cache)
 
-        column_cards_ui(
+        dashboard_card_list_ui(
           running_tab,
-          title = "Running",
           renderer = function(task) {
             task_id <- as.character(task$id[[1]])
             running_task_card_ui(
@@ -665,11 +740,18 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         )
       })
 
-      output$queued_cards <- shiny::renderUI({
+      output$queued_header <- shiny::renderUI({
+        queued_n <- nrow(state_split()$queued)
+        shiny::div(
+          class = "dashboard-column-header",
+          shiny::div(class = "dashboard-column-title", sprintf("Queued (%d)", queued_n))
+        )
+      })
+
+      output$queued_cards_body <- shiny::renderUI({
         expanded_task_id <- selected_id()
-        column_cards_ui(
+        dashboard_card_list_ui(
           state_split()$queued,
-          title = "Queued",
           renderer = function(task) {
             queued_task_card_ui(
               {
@@ -686,28 +768,44 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         )
       })
 
-      output$finished_cards <- shiny::renderUI({
-        expanded_task_id <- selected_id()
+      output$finished_header <- shiny::renderUI({
+        finished_all <- state_split()$finished
+        selected_filter <- finished_filter_status()
+        finished_n <- sum(finished_all$status == selected_filter)
+        header_right <- if (isTRUE(can_control)) {
+          shiny::actionButton("clean_finished", "Clean Finished", class = "btn btn-warning btn-sm")
+        } else {
+          NULL
+        }
+        shiny::div(
+          class = "dashboard-column-header",
+          shiny::div(class = "dashboard-column-title", sprintf("Finished (%d)", finished_n)),
+          header_right
+        )
+      })
+
+      output$finished_subheader <- shiny::renderUI({
         finished_all <- state_split()$finished
         completed_n <- sum(finished_all$status == "completed")
         failed_n <- sum(finished_all$status == "failed")
         cancelled_n <- sum(finished_all$status == "cancelled")
         selected_filter <- finished_filter_status()
-        finished_filtered <- finished_all[finished_all$status == selected_filter, , drop = FALSE]
+        finished_filter_controls_ui(
+          completed_n = completed_n,
+          failed_n = failed_n,
+          cancelled_n = cancelled_n,
+          selected = selected_filter
+        )
+      })
 
-        column_cards_ui(
+      output$finished_cards_body <- shiny::renderUI({
+        expanded_task_id <- selected_id()
+        finished_all <- state_split()$finished
+        selected_filter <- finished_filter_status()
+        finished_filtered <- finished_all[finished_all$status == selected_filter, , drop = FALSE]
+        dashboard_card_list_ui(
           finished_filtered,
-          title = "Finished",
-          renderer = function(task) finished_task_card_ui(task, expanded = identical(task$id, expanded_task_id)),
-          header_right = if (isTRUE(can_control)) {
-            shiny::actionButton("clean_finished", "Clean Finished", class = "btn btn-warning btn-sm")
-          },
-          subheader = finished_filter_controls_ui(
-            completed_n = completed_n,
-            failed_n = failed_n,
-            cancelled_n = cancelled_n,
-            selected = selected_filter
-          )
+          renderer = function(task) finished_task_card_ui(task, expanded = identical(task$id, expanded_task_id))
         )
       })
 
@@ -992,6 +1090,18 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
             list(task_id = current_id, container_key = container_key)
           )
         }, once = TRUE)
+      })
+
+      shiny::observe({
+        payload <- expanded_running_log_text()
+        if (is.null(payload)) {
+          return(invisible(NULL))
+        }
+        session$sendCustomMessage(
+          "taskr_update_logs",
+          list(task_id = payload$task_id, text = payload$text)
+        )
+        invisible(NULL)
       })
 
       shiny::onSessionEnded(function() {

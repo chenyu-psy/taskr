@@ -210,7 +210,11 @@ dashboard_state_signature <- function(tab) {
   )
 }
 
-# Build an event-style signature for running-task content updates.
+# Build an event-style signature for running-card structure/content updates.
+# Purpose:
+# - Trigger running-card UI updates when progress/message changes.
+# - Intentionally ignore stdout/stderr text changes so log streaming does not
+#   force a full running-card re-render.
 # Args:
 # - tab: Snapshot table from `extract_dashboard_snapshot()`.
 # Returns:
@@ -225,8 +229,6 @@ dashboard_running_signature <- function(tab) {
     id = as.character(running$id),
     progress = as.character(running$progress),
     message = as.character(running$message),
-    stdout_nchar = nchar(as.character(running$stdout %||% ""), type = "bytes", allowNA = FALSE, keepNA = FALSE),
-    stderr_nchar = nchar(as.character(running$stderr %||% ""), type = "bytes", allowNA = FALSE, keepNA = FALSE),
     stringsAsFactors = FALSE
   )
   key <- key[order(key$id), , drop = FALSE]
@@ -236,6 +238,36 @@ dashboard_running_signature <- function(tab) {
     paste(apply(key, 1, function(row) paste(row, collapse = "|")), collapse = ";"),
     sep = ":"
   )
+}
+
+# Build an event-style signature for one running task's log text updates.
+# Purpose:
+# - Track only stdout/stderr growth for the currently expanded running card.
+# - Let details logs update in place without re-rendering the full card list.
+# Args:
+# - tab: Snapshot table from `extract_dashboard_snapshot()`.
+# - task_id: Character task id currently expanded by the user.
+# Returns:
+# - Character scalar used by `reactivePoll(checkFunc=...)`.
+dashboard_running_log_signature <- function(tab, task_id = NULL) {
+  task_id <- as.character(task_id %||% "")
+  if (!nzchar(task_id)) {
+    return("running-log:none")
+  }
+
+  running <- tab[tab$status == "running", , drop = FALSE]
+  if (nrow(running) == 0) {
+    return(paste("running-log", task_id, "inactive", sep = ":"))
+  }
+
+  row <- running[running$id == task_id, , drop = FALSE]
+  if (nrow(row) == 0) {
+    return(paste("running-log", task_id, "inactive", sep = ":"))
+  }
+
+  stdout_nchar <- nchar(as.character(row$stdout[[1]] %||% ""), type = "bytes", allowNA = FALSE, keepNA = FALSE)
+  stderr_nchar <- nchar(as.character(row$stderr[[1]] %||% ""), type = "bytes", allowNA = FALSE, keepNA = FALSE)
+  paste("running-log", task_id, stdout_nchar, stderr_nchar, sep = ":")
 }
 
 # Add derived display columns (elapsed/wait/time labels) for dashboard UI.
