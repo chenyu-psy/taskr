@@ -464,8 +464,6 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       display_progress_cache <- shiny::reactiveVal(list())
       pending_cancel_ids <- shiny::reactiveVal(character())
       action_cooldown <- shiny::reactiveVal(list())
-      click_counts <- new.env(parent = emptyenv())
-      click_counts$values <- list()
       read_snapshot_tasks <- function() {
         out <- tryCatch(read_dashboard_snapshot(path = snapshot_path), error = function(e) NULL)
         if (is.null(out)) {
@@ -507,33 +505,6 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           } else {
             tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
           }
-          expanded_id <- selected_id()
-          running_now <- tab[tab$status == "running", , drop = FALSE]
-          expanded_is_running <- !is.null(expanded_id) && expanded_id %in% running_now$id
-
-          if (isTRUE(expanded_is_running)) {
-            # While reading an expanded running task, ignore progress/log-only
-            # deltas so the card is not rebuilt every second.
-            if (nrow(running_now) == 0) {
-              structure_sig <- "running-structure:empty"
-            } else {
-              structure_tab <- data.frame(
-                id = as.character(running_now$id),
-                status = as.character(running_now$status),
-                start_time = as.numeric(running_now$start_time),
-                end_time = as.numeric(running_now$end_time),
-                stringsAsFactors = FALSE
-              )
-              structure_tab <- structure_tab[order(structure_tab$id), , drop = FALSE]
-              structure_sig <- paste(
-                "running-structure",
-                paste(apply(structure_tab, 1, function(row) paste(row, collapse = "|")), collapse = ";"),
-                sep = ":"
-              )
-            }
-            return(paste0(structure_sig, "-", refresh_nonce()))
-          }
-
           paste0(dashboard_running_signature(tab), "-", refresh_nonce())
         },
         valueFunc = function() {
@@ -606,11 +577,9 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           task_progress <- as.numeric(task_row$progress[[1]])
           cached_progress <- suppressWarnings(as.numeric(progress_cache[[task_id]] %||% NA_real_))
 
-          parsed <- if (isTRUE(read_only)) {
-            dashboard_parse_task_progress_from_row(task_row)
-          } else {
-            dashboard_parse_task_progress(task_id)
-          }
+          # Parse progress from the already-polled row snapshot to avoid an
+          # extra per-task log query during each UI refresh.
+          parsed <- dashboard_parse_task_progress_from_row(task_row)
           chain_by_id[[task_id]] <- parsed$chain
 
           resolved <- resolve_dashboard_progress_fraction(
@@ -742,16 +711,6 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
             current_task_id <- task_id
             current_button_id <- button_id
             shiny::observeEvent(input[[current_button_id]], {
-              click_key <- paste(prefix, current_button_id, sep = "::")
-              current_count <- suppressWarnings(as.integer(input[[current_button_id]] %||% 0L))
-              if (is.na(current_count)) {
-                current_count <- 0L
-              }
-              previous_count <- as.integer(click_counts$values[[click_key]] %||% 0L)
-              if (current_count <= previous_count) {
-                return(invisible(NULL))
-              }
-              click_counts$values[[click_key]] <- current_count
               handler(current_task_id)
             }, ignoreInit = TRUE)
           })
