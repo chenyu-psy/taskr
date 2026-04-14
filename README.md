@@ -141,7 +141,7 @@ ordered by priority and submit time, which makes it easier to understand why a
 task has not started yet.
 
 <p align="center">
-  <img src="inst/images/dashboard-panels/queued-panel.jpg" alt="Queued panel" width="50%">
+  <img src="inst/images/dashboard-panels/pending-panel.jpg" alt="Queued panel" width="50%">
 </p>
 
 ## Finished Panel
