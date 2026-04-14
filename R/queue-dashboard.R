@@ -523,6 +523,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       finished_filter_status <- shiny::reactiveVal("completed")
       display_progress_cache <- shiny::reactiveVal(list())
       pending_cancel_ids <- shiny::reactiveVal(character())
+      pending_cancel_requests <- shiny::reactiveVal(setNames(character(), character()))
       action_cooldown <- shiny::reactiveVal(list())
       read_snapshot_state <- function() {
         out <- tryCatch(read_dashboard_snapshot(path = snapshot_path), error = function(e) NULL)
@@ -575,6 +576,43 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         }
 
         request_id
+      }
+
+      read_dashboard_ack <- function(request_id, ack_path) {
+        if (is.null(ack_path) || !is.character(ack_path) || length(ack_path) != 1 || is.na(ack_path) || !nzchar(ack_path)) {
+          return(NULL)
+        }
+
+        path <- file.path(ack_path, paste0(request_id, ".json"))
+        if (!file.exists(path)) {
+          return(NULL)
+        }
+
+        tryCatch(jsonlite::fromJSON(path, simplifyVector = TRUE), error = function(e) NULL)
+      }
+
+      remember_pending_cancel <- function(task_id, request_id) {
+        req <- pending_cancel_requests()
+        req[[request_id]] <- task_id
+        pending_cancel_requests(req)
+        pending_cancel_ids(unique(c(pending_cancel_ids(), task_id)))
+      }
+
+      forget_pending_cancel <- function(request_id) {
+        req <- pending_cancel_requests()
+        task_id <- as.character(req[[request_id]] %||% "")
+        req[[request_id]] <- NULL
+        pending_cancel_requests(req)
+
+        if (!nzchar(task_id)) {
+          return(invisible(NULL))
+        }
+
+        still_pending <- task_id %in% as.character(unname(req))
+        if (!isTRUE(still_pending)) {
+          pending_cancel_ids(setdiff(pending_cancel_ids(), task_id))
+        }
+        invisible(NULL)
       }
 
       read_current_dashboard_tasks <- function() {
@@ -953,7 +991,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
               if (isTRUE(control_via_commands)) {
                 request_id <- enqueue_dashboard_action("cancel_task", task_id = task_id)
                 if (!is.null(request_id)) {
-                  pending_cancel_ids(unique(c(pending_cancel_ids(), task_id)))
+                  remember_pending_cancel(task_id = task_id, request_id = request_id)
                 }
               } else {
                 tryCatch(
@@ -992,7 +1030,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         if (isTRUE(control_via_commands)) {
           request_id <- enqueue_dashboard_action("cancel_task", task_id = task_id)
           if (!is.null(request_id)) {
-            pending_cancel_ids(unique(c(pending_cancel_ids(), task_id)))
+            remember_pending_cancel(task_id = task_id, request_id = request_id)
           }
         } else {
           tryCatch(
@@ -1087,6 +1125,39 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         all_tab <- state_tasks()
         active_ids <- all_tab$id[all_tab$status %in% c("running", "queued")]
         pending_cancel_ids(intersect(pending_cancel_ids(), active_ids))
+
+        req <- pending_cancel_requests()
+        if (length(req) > 0) {
+          keep <- as.character(unname(req)) %in% active_ids
+          pending_cancel_requests(req[keep])
+        }
+      })
+
+      shiny::observe({
+        shiny::invalidateLater(500, session)
+
+        req <- pending_cancel_requests()
+        if (length(req) == 0) {
+          return(invisible(NULL))
+        }
+
+        snap <- read_snapshot_state()
+        ack_path <- snap$ack_path %||% NA_character_
+        for (request_id in names(req)) {
+          ack <- read_dashboard_ack(request_id = request_id, ack_path = ack_path)
+          if (is.null(ack)) {
+            next
+          }
+
+          forget_pending_cancel(request_id)
+          status <- as.character(ack$status %||% "")
+          if (identical(status, "error")) {
+            shiny::showNotification(ack$message %||% "Dashboard command failed.", type = "error")
+          }
+          refresh_nonce(refresh_nonce() + 1L)
+        }
+
+        invisible(NULL)
       })
 
       shiny::observe({

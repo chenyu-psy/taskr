@@ -74,6 +74,27 @@ test_that("start_scheduler does not start when no work", {
   expect_false(start_scheduler(interval = 0.01))
 })
 
+test_that("start_scheduler polls commands while dashboard is alive", {
+  skip_if_not_installed("later")
+  start_scheduler <- getFromNamespace("start_scheduler", "taskr")
+  stop_scheduler <- getFromNamespace("stop_scheduler", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  old_dashboard_process <- pkg_env$dashboard_process
+  pkg_env$dashboard_process <- list(is_alive = function() TRUE)
+  on.exit({
+    pkg_env$dashboard_process <- old_dashboard_process
+    taskr::shutdown_queue()
+  }, add = TRUE)
+
+  expect_true(start_scheduler(interval = 0.01))
+  expect_true(is.function(pkg_env$scheduler$scheduler_handle))
+
+  stop_scheduler()
+})
+
 test_that("stop_scheduler clears scheduled handle", {
   skip_if_not_installed("later")
   start_scheduler <- getFromNamespace("start_scheduler", "taskr")

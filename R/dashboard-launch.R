@@ -105,8 +105,9 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
 
   existing <- pkg_env$dashboard_process %||% NULL
   if (dashboard_process_is_alive(existing)) {
-      url <- pkg_env$dashboard_url %||% ""
-      if (nzchar(url)) {
+    url <- pkg_env$dashboard_url %||% ""
+    if (nzchar(url)) {
+      start_scheduler()
       if (isTRUE(announce)) {
         cat(sprintf("\nDashboard available at: %s\n", url))
       }
@@ -172,6 +173,7 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
   pkg_env$dashboard_process <- proc
   pkg_env$dashboard_url <- url
   pkg_env$dashboard_port <- port
+  start_scheduler()
 
   ready <- dashboard_port_ready(port = port, timeout_sec = 6)
   if (!isTRUE(ready)) {
