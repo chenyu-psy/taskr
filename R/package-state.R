@@ -30,10 +30,13 @@ pkg_env <- new.env(parent = emptyenv())
   pkg_env$dashboard_process <- NULL
   pkg_env$dashboard_url <- NULL
   pkg_env$dashboard_port <- NULL
+  pkg_env$control_server <- NULL
+  pkg_env$control_url <- NULL
+  pkg_env$control_port <- NULL
+  pkg_env$control_token <- NULL
   dir.create(pkg_env$tempdir, showWarnings = FALSE, recursive = TRUE)
   init_dashboard_ipc(reset_session = TRUE)
   try(write_dashboard_snapshot(), silent = TRUE)
-  try(ensure_dashboard_command_dir(), silent = TRUE)
 }
 
 #' Clean package state when `taskr` is unloaded.
@@ -61,6 +64,7 @@ pkg_env <- new.env(parent = emptyenv())
 
   cleanup_active_tasks()
   try(stop_dashboard_background(), silent = TRUE)
+  try(stop_control_server(), silent = TRUE)
 
   if (!is.null(pkg_env$tempdir) && dir.exists(pkg_env$tempdir)) {
     unlink(pkg_env$tempdir, recursive = TRUE, force = TRUE)

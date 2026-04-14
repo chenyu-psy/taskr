@@ -414,6 +414,48 @@ dashboard_scroll_js <- function() {
       "        container.scrollTop = Math.max(0, top - 12);",
       "      }",
       "    });",
+      "    window.Shiny.addCustomMessageHandler('taskr_control_request', function (msg) {",
+      "      var requestId = msg && msg.request_id ? String(msg.request_id) : '';",
+      "      var action = msg && msg.action ? String(msg.action) : '';",
+      "      var taskId = msg && msg.task_id ? String(msg.task_id) : '';",
+      "      var url = msg && msg.url ? String(msg.url) : '';",
+      "      var endpoint = msg && msg.endpoint ? String(msg.endpoint) : '';",
+      "      var token = msg && msg.token ? String(msg.token) : '';",
+      "      if (!requestId || !url || !endpoint) return;",
+      "      var payload = { token: token };",
+      "      if (taskId) payload.task_id = taskId;",
+      "      var done = false;",
+      "      var controller = window.AbortController ? new AbortController() : null;",
+      "      var timer = setTimeout(function () {",
+      "        if (done) return;",
+      "        if (controller) controller.abort();",
+      "      }, 10000);",
+      "      fetch(url + endpoint, {",
+      "        method: 'POST',",
+      "        headers: { 'Content-Type': 'text/plain' },",
+      "        body: JSON.stringify(payload),",
+      "        signal: controller ? controller.signal : undefined",
+      "      }).then(function (response) {",
+      "        return response.text().then(function (text) {",
+      "          var data = {};",
+      "          try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { ok: false, error: text || String(e) }; }",
+      "          data.http_status = response.status;",
+      "          data.request_id = requestId;",
+      "          data.action = action;",
+      "          data.task_id = taskId;",
+      "          if (!response.ok && data.ok !== false) data.ok = false;",
+      "          return data;",
+      "        });",
+      "      }).catch(function (err) {",
+      "        return { ok: false, request_id: requestId, action: action, task_id: taskId, error: String(err) };",
+      "      }).then(function (data) {",
+      "        done = true;",
+      "        clearTimeout(timer);",
+      "        if (window.Shiny && window.Shiny.setInputValue) {",
+      "          window.Shiny.setInputValue('taskr_control_result', data, { priority: 'event' });",
+      "        }",
+      "      });",
+      "    });",
       "  }",
       "})();",
       sep = "\n"
@@ -493,20 +535,29 @@ queue_dashboard_ui <- function() {
   )
 }
 
-queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path = NULL, command_path = NULL) {
+queue_dashboard_app <- function(
+    data_mode = c("live", "snapshot"),
+    snapshot_path = NULL,
+    control_url = NULL,
+    control_token = NULL) {
   if (!requireNamespace("shiny", quietly = TRUE)) {
     stop("`launch_dashboard()` requires the `shiny` package. Install it with install.packages('shiny').")
   }
 
   data_mode <- match.arg(data_mode)
   read_only <- identical(data_mode, "snapshot")
-  control_via_commands <- isTRUE(read_only) &&
-    !is.null(command_path) &&
-    is.character(command_path) &&
-    length(command_path) == 1 &&
-    !is.na(command_path) &&
-    nzchar(command_path)
-  can_control <- !isTRUE(read_only) || isTRUE(control_via_commands)
+  control_via_server <- isTRUE(read_only) &&
+    !is.null(control_url) &&
+    is.character(control_url) &&
+    length(control_url) == 1 &&
+    !is.na(control_url) &&
+    nzchar(control_url) &&
+    !is.null(control_token) &&
+    is.character(control_token) &&
+    length(control_token) == 1 &&
+    !is.na(control_token) &&
+    nzchar(control_token)
+  can_control <- !isTRUE(read_only) || isTRUE(control_via_server)
   if (!isTRUE(read_only)) {
     ensure_queue_initialized()
   }
@@ -530,65 +581,37 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         if (is.null(out)) {
           return(list(
             session_id = NA_character_,
-            command_path = command_path,
-            ack_path = NA_character_,
             tasks = empty_dashboard_table(),
             max_slots = 1L
           ))
         }
         list(
           session_id = out$session_id %||% NA_character_,
-          command_path = out$command_path %||% command_path,
-          ack_path = out$ack_path %||% NA_character_,
           tasks = out$tasks %||% empty_dashboard_table(),
           max_slots = as.integer(out$max_slots %||% 1L)
         )
       }
 
-      enqueue_dashboard_action <- function(action, task_id = NULL) {
-        snap <- read_snapshot_state()
-        request_id <- NULL
-        ok <- TRUE
-        err_msg <- NULL
+      send_control_request <- function(action, task_id = NULL) {
+        if (!isTRUE(control_via_server)) {
+          shiny::showNotification("Dashboard control server is not available.", type = "error")
+          return(NULL)
+        }
 
-        tryCatch(
-          {
-            request_id <- dashboard_enqueue_command(
-              action = action,
-              task_id = task_id,
-              path = snap$command_path,
-              session_id = snap$session_id
-            )
-          },
-          error = function(e) {
-            ok <<- FALSE
-            err_msg <<- conditionMessage(e)
-          }
-        )
-
-        if (!isTRUE(ok)) {
-          warning("Dashboard command enqueue failed for `", action, "`: ", err_msg)
-          shiny::showNotification(
-            paste0("Failed to send dashboard command: ", err_msg),
-            type = "error"
+        endpoint <- if (identical(action, "cancel")) "/cancel" else "/clear_all"
+        request_id <- new_dashboard_session_id()
+        session$sendCustomMessage(
+          "taskr_control_request",
+          list(
+            request_id = request_id,
+            action = action,
+            endpoint = endpoint,
+            url = control_url,
+            token = control_token,
+            task_id = task_id %||% ""
           )
-          return(NULL)
-        }
-
+        )
         request_id
-      }
-
-      read_dashboard_ack <- function(request_id, ack_path) {
-        if (is.null(ack_path) || !is.character(ack_path) || length(ack_path) != 1 || is.na(ack_path) || !nzchar(ack_path)) {
-          return(NULL)
-        }
-
-        path <- file.path(ack_path, paste0(request_id, ".json"))
-        if (!file.exists(path)) {
-          return(NULL)
-        }
-
-        tryCatch(jsonlite::fromJSON(path, simplifyVector = TRUE), error = function(e) NULL)
       }
 
       remember_pending_cancel <- function(task_id, request_id) {
@@ -988,8 +1011,8 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
                 return(invisible(NULL))
               }
 
-              if (isTRUE(control_via_commands)) {
-                request_id <- enqueue_dashboard_action("cancel_task", task_id = task_id)
+              if (isTRUE(control_via_server)) {
+                request_id <- send_control_request("cancel", task_id = task_id)
                 if (!is.null(request_id)) {
                   remember_pending_cancel(task_id = task_id, request_id = request_id)
                 }
@@ -1027,8 +1050,8 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           return(invisible(NULL))
         }
 
-        if (isTRUE(control_via_commands)) {
-          request_id <- enqueue_dashboard_action("cancel_task", task_id = task_id)
+        if (isTRUE(control_via_server)) {
+          request_id <- send_control_request("cancel", task_id = task_id)
           if (!is.null(request_id)) {
             remember_pending_cancel(task_id = task_id, request_id = request_id)
           }
@@ -1090,13 +1113,13 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           return(invisible(NULL))
         }
 
-        if (isTRUE(control_via_commands)) {
+        if (isTRUE(control_via_server)) {
           all_tab <- state_tasks()
           active_ids <- all_tab$id[all_tab$status %in% c("running", "queued")]
           if (length(active_ids) > 0) {
             pending_cancel_ids(unique(c(pending_cancel_ids(), active_ids)))
           }
-          enqueue_dashboard_action("clear_all")
+          send_control_request("clear_all")
         } else {
           slots <- as.integer(pkg_env$scheduler$capacity$slots %||% 1L)
           if (is.na(slots) || slots < 1L) {
@@ -1133,32 +1156,31 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         }
       })
 
-      shiny::observe({
-        shiny::invalidateLater(500, session)
+      shiny::observeEvent(input$taskr_control_result, {
+        result <- input$taskr_control_result
+        request_id <- as.character(result$request_id %||% "")
+        action <- as.character(result$action %||% "")
 
-        req <- pending_cancel_requests()
-        if (length(req) == 0) {
-          return(invisible(NULL))
-        }
-
-        snap <- read_snapshot_state()
-        ack_path <- snap$ack_path %||% NA_character_
-        for (request_id in names(req)) {
-          ack <- read_dashboard_ack(request_id = request_id, ack_path = ack_path)
-          if (is.null(ack)) {
-            next
-          }
-
+        if (identical(action, "cancel") && nzchar(request_id)) {
           forget_pending_cancel(request_id)
-          status <- as.character(ack$status %||% "")
-          if (identical(status, "error")) {
-            shiny::showNotification(ack$message %||% "Dashboard command failed.", type = "error")
-          }
-          refresh_nonce(refresh_nonce() + 1L)
+        }
+        if (identical(action, "clear_all")) {
+          pending_cancel_ids(character())
+          pending_cancel_requests(setNames(character(), character()))
         }
 
+        ok <- isTRUE(result$ok)
+        message <- as.character(result$message %||% "")
+        error <- as.character(result$error %||% "")
+        if (ok) {
+          shiny::showNotification(if (nzchar(message)) message else "Dashboard control action completed.", type = "message")
+        } else {
+          shiny::showNotification(if (nzchar(error)) error else "Dashboard control action failed.", type = "error")
+        }
+
+        refresh_nonce(refresh_nonce() + 1L)
         invisible(NULL)
-      })
+      }, ignoreInit = TRUE)
 
       shiny::observe({
         # Keep expanded id valid when data updates.

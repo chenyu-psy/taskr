@@ -134,109 +134,51 @@ test_that("cancel_task kills active task when finished record is stale", {
   expect_false(exists("task_active_002", envir = pkg_env$active_tasks, inherits = FALSE))
 })
 
-test_that("dashboard cancel command uses session inbox and writes ack", {
-  dashboard_enqueue_command <- getFromNamespace("dashboard_enqueue_command", "taskr")
-  process_dashboard_commands <- getFromNamespace("process_dashboard_commands", "taskr")
-  dashboard_session_id <- getFromNamespace("dashboard_session_id", "taskr")
+test_that("control_cancel_task cancels queued task through main console state", {
+  control_cancel_task <- getFromNamespace("control_cancel_task", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
-
-  taskr::shutdown_queue()
-  taskr::init_queue(max_slots = 1)
-
-  old_ack_path <- pkg_env$dashboard_ack_path
-  command_dir <- tempfile("commands_")
-  ack_dir <- tempfile("acks_")
-  dir.create(command_dir)
-  dir.create(ack_dir)
-  pkg_env$dashboard_ack_path <- ack_dir
-  on.exit({
-    pkg_env$dashboard_ack_path <- old_ack_path
-    taskr::shutdown_queue()
-  }, add = TRUE)
-
-  pending_item <- make_control_item("task_002", "queued_cmd", "queued")
-  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
-  pkg_env$scheduler$queue <- list(pending_item)
-
-  request_id <- dashboard_enqueue_command(
-    "cancel_task",
-    task_id = "task_002",
-    path = command_dir,
-    session_id = dashboard_session_id()
-  )
-  processed <- process_dashboard_commands(path = command_dir)
-
-  expect_true(processed)
-  expect_length(pkg_env$scheduler$queue, 0)
-  expect_identical(pkg_env$scheduler$finished$task_002$status, "cancelled")
-
-  ack_path <- file.path(ack_dir, paste0(request_id, ".json"))
-  expect_true(file.exists(ack_path))
-  ack <- jsonlite::fromJSON(ack_path, simplifyVector = TRUE)
-  expect_identical(ack$status, "ok")
-  expect_identical(ack$result, "cancelled")
-})
-
-test_that("dashboard command path stays stable across queue sessions", {
-  dashboard_command_path <- getFromNamespace("dashboard_command_path", "taskr")
-  dashboard_session_id <- getFromNamespace("dashboard_session_id", "taskr")
 
   taskr::shutdown_queue()
   taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
-  first_session <- dashboard_session_id()
-  first_command_path <- dashboard_command_path()
+  pending_item <- make_control_item("task_002", "queued_control", "queued")
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$queue <- list(pending_item)
 
-  taskr::init_queue(max_slots = 1)
+  out <- control_cancel_task("task_002")
 
-  expect_false(identical(dashboard_session_id(), first_session))
-  expect_identical(dashboard_command_path(), first_command_path)
+  expect_true(out$ok)
+  expect_identical(out$status, "cancelled")
+  expect_length(pkg_env$scheduler$queue, 0)
+  expect_identical(pkg_env$scheduler$finished$task_002$status, "cancelled")
 })
 
-test_that("dashboard command from stale session is ignored with ack", {
-  dashboard_enqueue_command <- getFromNamespace("dashboard_enqueue_command", "taskr")
-  process_dashboard_commands <- getFromNamespace("process_dashboard_commands", "taskr")
+test_that("control_clear_all_tasks removes queued tasks and kills active tasks", {
+  control_clear_all_tasks <- getFromNamespace("control_clear_all_tasks", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
 
   taskr::shutdown_queue()
   taskr::init_queue(max_slots = 1)
-
-  old_ack_path <- pkg_env$dashboard_ack_path
-  command_dir <- tempfile("commands_")
-  ack_dir <- tempfile("acks_")
-  dir.create(command_dir)
-  dir.create(ack_dir)
-  pkg_env$dashboard_ack_path <- ack_dir
-  on.exit({
-    pkg_env$dashboard_ack_path <- old_ack_path
-    taskr::shutdown_queue()
-  }, add = TRUE)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
 
   task_obj <- make_killable_running_task()
-  running_item <- make_control_item("task_003", "running_cmd", "running", task = task_obj)
+  running_item <- make_control_item("task_003", "running_control", "running", task = task_obj)
+  queued_item <- make_control_item("task_004", "queued_control", "queued")
   pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$running <- list(task_003 = running_item)
+  pkg_env$scheduler$queue <- list(queued_item)
 
-  request_id <- dashboard_enqueue_command(
-    "cancel_task",
-    task_id = "task_003",
-    path = command_dir,
-    session_id = "stale_session"
-  )
-  processed <- process_dashboard_commands(path = command_dir)
+  out <- control_clear_all_tasks()
 
-  expect_false(processed)
-  expect_false(task_obj$state$cancelled)
-  expect_true("task_003" %in% names(pkg_env$scheduler$running))
-
-  ack_path <- file.path(ack_dir, paste0(request_id, ".json"))
-  expect_true(file.exists(ack_path))
-  ack <- jsonlite::fromJSON(ack_path, simplifyVector = TRUE)
-  expect_identical(ack$status, "ignored")
-  expect_identical(ack$result, "session_mismatch")
+  expect_true(out$ok)
+  expect_true(task_obj$state$cancelled)
+  expect_identical(out$cancelled, "task_003")
+  expect_identical(out$removed_queued, "task_004")
+  expect_length(pkg_env$scheduler$running, 0)
+  expect_length(pkg_env$scheduler$queue, 0)
 })
 
 test_that("cancel_task warns when task is already terminal", {

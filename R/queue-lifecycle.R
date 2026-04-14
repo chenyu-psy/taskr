@@ -115,6 +115,7 @@ shutdown_queue <- function() {
   }
 
   stop_dashboard_background()
+  stop_control_server()
   clear_task_tempdir()
   write_dashboard_snapshot()
   invisible(NULL)

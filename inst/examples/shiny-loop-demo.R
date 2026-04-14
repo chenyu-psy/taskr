@@ -25,7 +25,7 @@ pkgload::load_all(export_all = FALSE, quiet = TRUE)
 set.seed(123)
 
 taskr::shutdown_queue()
-taskr::init_queue(max_slots = 6)
+taskr::init_queue(max_slots = 1)
 
 demo_conditions <- c(
   "chain_stan_like",
@@ -38,10 +38,11 @@ demo_conditions <- c(
   "freeze_ambiguous_after_valid"
 )
 
-# Each demo runs for 10-20 seconds to keep the dashboard easy to inspect.
-wait_plan <- sample(10:20, size = length(demo_conditions), replace = TRUE)
-# Random slot demand (1-4) per task to demonstrate queue resource scheduling.
-slot_plan <- sample(1:4, size = length(demo_conditions), replace = TRUE)
+# Each demo runs for 40-60 seconds so cancel behavior is easier to test.
+wait_plan <- sample(40:60, size = length(demo_conditions), replace = TRUE)
+# Keep every task at one slot and queue capacity at one slot. This makes only
+# one child process run at a time, which is clearer for cancel diagnostics.
+slot_plan <- rep(1L, length(demo_conditions))
 # Stagger submissions so new tasks appear gradually in the dashboard.
 submit_gap_plan <- sample(3:5, size = length(demo_conditions) - 1L, replace = TRUE)
 
