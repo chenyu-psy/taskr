@@ -608,4 +608,6 @@ test_that("dashboard custom message handlers use Shiny-compatible signatures", {
   expect_true(grepl("function saveAncestors(el)", script, fixed = TRUE))
   expect_true(grepl("function initLogScroll(root)", script, fixed = TRUE))
   expect_true(grepl("scrollLogToBottom(node)", script, fixed = TRUE))
+  expect_true(grepl("window.__taskrLogStickToBottom", script, fixed = TRUE))
+  expect_true(grepl("function logShouldStick(node)", script, fixed = TRUE))
 })
