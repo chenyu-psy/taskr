@@ -700,7 +700,13 @@ queue_dashboard_app <- function(
           return(NULL)
         }
 
-        endpoint <- if (identical(action, "cancel")) "/cancel" else "/clear_all"
+        if (identical(action, "cancel")) {
+          endpoint <- "/cancel"
+        } else if (identical(action, "clean_finished")) {
+          endpoint <- "/clean_finished"
+        } else {
+          endpoint <- "/clear_all"
+        }
         request_id <- new_dashboard_session_id()
         session$sendCustomMessage(
           "taskr_control_request",
@@ -1230,6 +1236,12 @@ queue_dashboard_app <- function(
         if (!isTRUE(can_control)) {
           return(invisible(NULL))
         }
+
+        if (isTRUE(control_via_server)) {
+          send_control_request("clean_finished")
+          return(invisible(NULL))
+        }
+
         tryCatch(
           {
             clean_tasks()

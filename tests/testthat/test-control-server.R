@@ -109,3 +109,32 @@ test_that("control server cancel endpoint updates main console scheduler", {
   expect_length(pkg_env$scheduler$queue, 0)
   expect_identical(pkg_env$scheduler$finished$task_control_001$status, "cancelled")
 })
+
+test_that("control server clean_finished endpoint removes finished records", {
+  handle_control_request <- getFromNamespace("handle_control_request", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  pkg_env$control_token <- "control-token"
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(
+    task_control_010 = make_control_server_item("task_control_010", "done", "completed"),
+    task_control_011 = make_control_server_item("task_control_011", "failed", "failed")
+  )
+
+  res <- handle_control_request(make_control_req(
+    "/clean_finished",
+    list(token = "control-token")
+  ))
+  body <- jsonlite::fromJSON(res$body, simplifyVector = TRUE)
+
+  expect_equal(res$status, 200L)
+  expect_true(body$ok)
+  expect_identical(body$action, "clean_finished")
+  expect_equal(body$removed, 2L)
+  expect_length(pkg_env$scheduler$finished, 0)
+})

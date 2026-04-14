@@ -233,6 +233,34 @@ control_clear_all_tasks <- function() {
   )
 }
 
+# Clean finished task records from the main console scheduler.
+# Args:
+# - None.
+# Returns:
+# - List payload for the dashboard control response.
+# Side effects:
+# - Deletes result files owned by finished records and rewrites the dashboard
+#   snapshot through `clean_tasks()`.
+control_clean_finished_tasks <- function() {
+  if (is.null(pkg_env$scheduler)) {
+    return(list(
+      ok = TRUE,
+      action = "clean_finished",
+      removed = 0L,
+      message = "Queue is not initialized."
+    ))
+  }
+
+  removed <- length(pkg_env$scheduler$finished %||% list())
+  clean_tasks()
+  list(
+    ok = TRUE,
+    action = "clean_finished",
+    removed = as.integer(removed),
+    message = sprintf("Finished tasks cleaned (%d removed).", removed)
+  )
+}
+
 handle_control_request <- function(req) {
   method <- as.character(req$REQUEST_METHOD %||% "GET")
   path <- as.character(req$PATH_INFO %||% "/")
@@ -264,6 +292,10 @@ handle_control_request <- function(req) {
 
       if (identical(path, "/clear_all")) {
         return(control_json_response(payload = control_clear_all_tasks()))
+      }
+
+      if (identical(path, "/clean_finished")) {
+        return(control_json_response(payload = control_clean_finished_tasks()))
       }
 
       control_json_response(status = 404L, payload = list(ok = FALSE, error = "Unknown control endpoint."))
