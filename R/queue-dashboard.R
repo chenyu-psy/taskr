@@ -414,6 +414,31 @@ dashboard_scroll_js <- function() {
       "        container.scrollTop = Math.max(0, top - 12);",
       "      }",
       "    });",
+      "    function forceCloseTaskrModal() {",
+      "      var modals = document.querySelectorAll ? document.querySelectorAll('.modal') : [];",
+      "      Array.prototype.forEach.call(modals, function (modal) {",
+      "        modal.classList.remove('show');",
+      "        modal.classList.remove('in');",
+      "        modal.setAttribute('aria-hidden', 'true');",
+      "        modal.style.display = 'none';",
+      "      });",
+      "      var backdrops = document.querySelectorAll ? document.querySelectorAll('.modal-backdrop') : [];",
+      "      Array.prototype.forEach.call(backdrops, function (node) {",
+      "        if (node && node.parentNode) node.parentNode.removeChild(node);",
+      "      });",
+      "      if (document.body && document.body.classList) {",
+      "        document.body.classList.remove('modal-open');",
+      "      }",
+      "      if (document.body && document.body.style) {",
+      "        document.body.style.removeProperty('padding-right');",
+      "        document.body.style.removeProperty('overflow');",
+      "      }",
+      "    }",
+      "    window.Shiny.addCustomMessageHandler('taskr_force_close_modal', function () {",
+      "      forceCloseTaskrModal();",
+      "      setTimeout(forceCloseTaskrModal, 50);",
+      "      setTimeout(forceCloseTaskrModal, 250);",
+      "    });",
       "    window.Shiny.addCustomMessageHandler('taskr_control_request', function (msg) {",
       "      var requestId = msg && msg.request_id ? String(msg.request_id) : '';",
       "      var action = msg && msg.action ? String(msg.action) : '';",
@@ -612,6 +637,15 @@ queue_dashboard_app <- function(
           )
         )
         request_id
+      }
+
+      close_dashboard_modal <- function() {
+        # Shiny sometimes leaves a Bootstrap backdrop behind when the modal
+        # close and an async browser request are flushed together. Force a
+        # front-end cleanup so the dashboard remains usable while cancel runs.
+        shiny::removeModal()
+        session$sendCustomMessage("taskr_force_close_modal", list())
+        invisible(NULL)
       }
 
       remember_pending_cancel <- function(task_id, request_id) {
@@ -1040,7 +1074,7 @@ queue_dashboard_app <- function(
           return(invisible(NULL))
         }
         task_id <- pending_running_cancel()
-        shiny::removeModal()
+        close_dashboard_modal()
         if (is.null(task_id)) {
           return(invisible(NULL))
         }
@@ -1108,7 +1142,7 @@ queue_dashboard_app <- function(
           return(invisible(NULL))
         }
 
-        shiny::removeModal()
+        close_dashboard_modal()
         if (!can_issue_action("clear_all")) {
           return(invisible(NULL))
         }
