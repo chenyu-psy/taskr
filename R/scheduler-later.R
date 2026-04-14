@@ -39,7 +39,6 @@ update_scheduler <- function() {
     return(invisible(NULL))
   }
 
-  try(process_dashboard_commands(), silent = TRUE)
   pkg_env$scheduler$scheduler_handle <- NULL
   pkg_env$scheduler <- update_queue(pkg_env$scheduler)
   write_dashboard_snapshot()

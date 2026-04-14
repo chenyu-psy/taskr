@@ -12,7 +12,7 @@ workflow and adds an explicit queue for managing many tasks at once.
 
 With `taskr`, you can set how many task slots your session should use, submit
 many tasks at once, and let the queue start them as capacity becomes available.
-The built-in dashboard shows what is queued, running, and finished, and gives
+The built-in dashboard shows what is pending, running, and finished, and gives
 you simple controls for cancellation, cleanup, logs, and results.
 
 The queue is session-local and temporary by design. Restarting R clears queue
@@ -70,7 +70,7 @@ submit_task(
 
 `resources$slots` is checked against `max_slots`.  
 With `max_slots = 3`, a task requesting `slots = 2` can run, and leaves one
-remaining slot for other queued work.
+remaining slot for other pending work.
 
 ## Step 3: Monitor Task State
 
@@ -108,7 +108,7 @@ printed in the console into a web browser.
 ## Overview
 
 The dashboard gives a single view of the current queue. It separates running,
-waiting, and finished tasks so you can quickly see what is happening without
+pending, and finished tasks so you can quickly see what is happening without
 polling the console.
 
 ![Dashboard overview](inst/images/dashboard-panels/overview.jpg)
@@ -134,14 +134,14 @@ Task details expand inline, and running tasks can be cancelled from the card.
   <img src="inst/images/dashboard-panels/running-panel.jpg" alt="Running panel" width="50%">
 </p>
 
-## Queued Panel
+## Pending Panel
 
-The queued panel lists tasks that are waiting for available slots. Tasks are
+The pending panel lists tasks that are waiting for available slots. Tasks are
 ordered by priority and submit time, which makes it easier to understand why a
 task has not started yet.
 
 <p align="center">
-  <img src="inst/images/dashboard-panels/queued-panel.jpg" alt="Queued panel" width="50%">
+  <img src="inst/images/dashboard-panels/pending-panel.jpg" alt="Pending panel" width="50%">
 </p>
 
 ## Finished Panel

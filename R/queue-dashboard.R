@@ -41,14 +41,36 @@ task_expand_block_ui <- function(task, expanded = FALSE) {
     shiny::tags$pre(
       class = "task-expand-logs",
       `data-scroll-key` = sprintf("logs-%s", task$id),
+      `data-log-task-id` = as.character(task$id),
       log_text
     )
   )
 }
 
+# Render one dashboard action button without a Shiny input id.
+#
+# Purpose:
+# - Avoid duplicate input-id warnings when Shiny replaces dynamic card lists.
+# - Send all card clicks through one delegated browser event.
+#
+# Args:
+# - action: Short action key, for example "select" or "cancel".
+# - task_id: Task id attached to the card.
+# - label: Button text shown to the user.
+# - class: CSS classes for Bootstrap styling.
+# Returns:
+# - A plain HTML `<button>` tag.
+dashboard_action_button_ui <- function(action, task_id, label, class) {
+  shiny::tags$button(
+    type = "button",
+    class = class,
+    `data-taskr-action` = as.character(action),
+    `data-taskr-task-id` = as.character(task_id),
+    label
+  )
+}
+
 running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE, chain_tab = NULL, progress_ratio = NULL) {
-  select_id <- button_id_for_task("select", task$id)
-  cancel_id <- button_id_for_task("cancel", task$id)
   if (is.null(progress_ratio) || length(progress_ratio) == 0 || is.na(progress_ratio)) {
     progress_ratio <- normalize_progress_fraction(task$progress, default_fraction = 0.5)
   } else {
@@ -116,9 +138,19 @@ running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE, ch
     },
     shiny::div(
       class = "task-card-actions",
-      shiny::actionButton(select_id, ifelse(expanded, "Collapse", "Details"), class = "btn btn-sm btn-outline-primary"),
+      dashboard_action_button_ui(
+        action = "select",
+        task_id = task$id,
+        label = ifelse(expanded, "Collapse", "Details"),
+        class = "btn btn-sm btn-outline-primary"
+      ),
       if (isTRUE(allow_cancel)) {
-        shiny::actionButton(cancel_id, "Cancel", class = "btn btn-sm btn-outline-danger")
+        dashboard_action_button_ui(
+          action = "cancel",
+          task_id = task$id,
+          label = "Cancel",
+          class = "btn btn-sm btn-outline-danger"
+        )
       }
     ),
     task_expand_block_ui(task, expanded = expanded)
@@ -131,9 +163,6 @@ running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE, ch
 # Returns:
 # - A `shiny::div` card tag.
 queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
-  select_id <- button_id_for_task("select", task$id)
-  cancel_id <- button_id_for_task("cancel", task$id)
-
   shiny::div(
     class = dashboard_card_class(task$status),
     `data-task-id` = as.character(task$id),
@@ -148,9 +177,19 @@ queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
     shiny::div(class = "task-card-meta", paste("Submitted:", task$submit_time_label)),
     shiny::div(
       class = "task-card-actions",
-      shiny::actionButton(select_id, ifelse(expanded, "Collapse", "Details"), class = "btn btn-sm btn-outline-primary"),
+      dashboard_action_button_ui(
+        action = "select",
+        task_id = task$id,
+        label = ifelse(expanded, "Collapse", "Details"),
+        class = "btn btn-sm btn-outline-primary"
+      ),
       if (isTRUE(allow_cancel)) {
-        shiny::actionButton(cancel_id, "Cancel", class = "btn btn-sm btn-outline-danger")
+        dashboard_action_button_ui(
+          action = "cancel",
+          task_id = task$id,
+          label = "Cancel",
+          class = "btn btn-sm btn-outline-danger"
+        )
       }
     ),
     task_expand_block_ui(task, expanded = expanded)
@@ -163,8 +202,6 @@ queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
 # Returns:
 # - A `shiny::div` card tag.
 finished_task_card_ui <- function(task, expanded = FALSE) {
-  select_id <- button_id_for_task("select", task$id)
-
   shiny::div(
     class = dashboard_card_class(task$status),
     `data-task-id` = as.character(task$id),
@@ -180,38 +217,50 @@ finished_task_card_ui <- function(task, expanded = FALSE) {
     },
     shiny::div(
       class = "task-card-actions",
-      shiny::actionButton(select_id, ifelse(expanded, "Collapse", "Details"), class = "btn btn-sm btn-outline-primary")
+      dashboard_action_button_ui(
+        action = "select",
+        task_id = task$id,
+        label = ifelse(expanded, "Collapse", "Details"),
+        class = "btn btn-sm btn-outline-primary"
+      )
     ),
     task_expand_block_ui(task, expanded = expanded)
   )
 }
 
-# Render one dashboard column section from task rows.
+# Render one dashboard card list from task rows.
 # Args:
 # - tab: Subset table for one status block.
-# - title: Section title.
 # - renderer: Card renderer function for each row.
 # Returns:
-# - A section wrapper tag.
-column_cards_ui <- function(tab, title, renderer, header_right = NULL, subheader = NULL) {
+# - Card tag list (or one empty placeholder div).
+dashboard_card_list_ui <- function(tab, renderer) {
   cards <- if (nrow(tab) == 0) {
     shiny::div(class = "empty-block", "No tasks")
   } else {
     lapply(seq_len(nrow(tab)), function(i) renderer(tab[i, , drop = FALSE]))
   }
 
+  shiny::tagList(cards)
+}
+
+# Render one dashboard column shell with stable scroll container.
+# Args:
+# - header_output_id: Output id for the column header UI.
+# - body_output_id: Output id for card list UI.
+# - scroll_key: Stable key used by scroll-preserve JS.
+# - subheader_output_id: Optional output id for controls below header.
+# Returns:
+# - A section wrapper tag.
+dashboard_column_shell_ui <- function(header_output_id, body_output_id, scroll_key, subheader_output_id = NULL) {
   shiny::div(
     class = "dashboard-column",
-    shiny::div(
-      class = "dashboard-column-header",
-      shiny::div(class = "dashboard-column-title", sprintf("%s (%d)", title, nrow(tab))),
-      header_right
-    ),
-    subheader,
+    shiny::uiOutput(header_output_id),
+    if (!is.null(subheader_output_id)) shiny::uiOutput(subheader_output_id),
     shiny::div(
       class = "dashboard-column-body",
-      `data-scroll-key` = sprintf("col-%s", tolower(title)),
-      cards
+      `data-scroll-key` = scroll_key,
+      shiny::uiOutput(body_output_id, class = "dashboard-column-cards")
     )
   )
 }
@@ -251,6 +300,7 @@ dashboard_css <- function() {
       ".dashboard-column-title { margin-bottom: 0; }",
       ".dashboard-column-body { display: flex; flex-direction: column; gap: 8px; max-height: 35vh; overflow-y: auto; }",
       ".dashboard-column-body { align-items: flex-start; }",
+      ".dashboard-column-cards { width: 100%; display: flex; flex-direction: column; gap: 8px; }",
       ".task-card { border: 1px solid #d7e0e8; border-radius: 8px; padding: 9px; background: #fbfdff; }",
       ".task-card { display: flex; flex-direction: column; gap: 4px; }",
       ".task-card { width: min(100%, 980px); }",
@@ -297,11 +347,56 @@ dashboard_scroll_js <- function() {
       "(function () {",
       "  if (window.__taskrScrollStore) return;",
       "  window.__taskrScrollStore = {};",
+      "  window.__taskrLogStickToBottom = {};",
       "  function keyOf(el) { return el && el.getAttribute ? el.getAttribute('data-scroll-key') : null; }",
       "  function save(el) {",
       "    var key = keyOf(el);",
       "    if (!key) return;",
       "    window.__taskrScrollStore[key] = el.scrollTop || 0;",
+      "  }",
+      "  function saveAll(scope) {",
+      "    var root = scope || document;",
+      "    var nodes = root.querySelectorAll ? root.querySelectorAll('[data-scroll-key]') : [];",
+      "    Array.prototype.forEach.call(nodes, function (el) { save(el); });",
+      "  }",
+      "  function saveAncestors(el) {",
+      "    var node = el;",
+      "    while (node && node !== document) {",
+      "      if (node.getAttribute && node.getAttribute('data-scroll-key')) save(node);",
+      "      node = node.parentNode;",
+      "    }",
+      "  }",
+      "  function isLogNode(el) {",
+      "    return !!(el && el.classList && el.classList.contains('task-expand-logs') && el.getAttribute('data-log-task-id'));",
+      "  }",
+      "  function logKey(node) {",
+      "    if (!node || !node.getAttribute) return '';",
+      "    return node.getAttribute('data-scroll-key') || ('logs-' + String(node.getAttribute('data-log-task-id') || ''));",
+      "  }",
+      "  function logBottomGap(node) {",
+      "    return node.scrollHeight - (node.scrollTop + node.clientHeight);",
+      "  }",
+      "  function setLogStick(node, value) {",
+      "    var key = logKey(node);",
+      "    if (key) window.__taskrLogStickToBottom[key] = !!value;",
+      "  }",
+      "  function logShouldStick(node) {",
+      "    var key = logKey(node);",
+      "    if (!key) return true;",
+      "    if (!Object.prototype.hasOwnProperty.call(window.__taskrLogStickToBottom, key)) {",
+      "      window.__taskrLogStickToBottom[key] = true;",
+      "    }",
+      "    return !!window.__taskrLogStickToBottom[key];",
+      "  }",
+      "  function rememberLogStick(node) {",
+      "    if (!isLogNode(node)) return;",
+      "    setLogStick(node, logBottomGap(node) <= 16);",
+      "  }",
+      "  function scrollLogToBottom(node) {",
+      "    if (!node) return;",
+      "    node.scrollTop = node.scrollHeight;",
+      "    save(node);",
+      "    setLogStick(node, true);",
       "  }",
       "  function restore(scope) {",
       "    var root = scope || document;",
@@ -309,8 +404,21 @@ dashboard_scroll_js <- function() {
       "    Array.prototype.forEach.call(nodes, function (el) {",
       "      var key = keyOf(el);",
       "      if (!key) return;",
+      "      if (isLogNode(el) && logShouldStick(el)) {",
+      "        setTimeout(function () { scrollLogToBottom(el); }, 0);",
+      "        return;",
+      "      }",
       "      if (Object.prototype.hasOwnProperty.call(window.__taskrScrollStore, key)) {",
       "        el.scrollTop = window.__taskrScrollStore[key];",
+      "      }",
+      "    });",
+      "  }",
+      "  function initLogScroll(root) {",
+      "    var scope = root || document;",
+      "    var nodes = scope.querySelectorAll ? scope.querySelectorAll('.task-expand-logs[data-log-task-id]') : [];",
+      "    Array.prototype.forEach.call(nodes, function (node) {",
+      "      if (logShouldStick(node)) {",
+      "        setTimeout(function () { scrollLogToBottom(node); }, 0);",
       "      }",
       "    });",
       "  }",
@@ -318,11 +426,21 @@ dashboard_scroll_js <- function() {
       "    var el = evt.target;",
       "    if (!el || !el.getAttribute) return;",
       "    if (el.getAttribute('data-scroll-key')) save(el);",
+      "    rememberLogStick(el);",
       "  }, true);",
-      "  document.addEventListener('shiny:value', function (evt) {",
-      "    setTimeout(function () { restore(evt && evt.target ? evt.target : document); }, 0);",
+      "  document.addEventListener('shiny:outputinvalidated', function (evt) {",
+      "    saveAll(evt && evt.target ? evt.target : document);",
+      "    saveAncestors(evt && evt.target ? evt.target : null);",
       "  });",
-      "  document.addEventListener('shiny:connected', function () { restore(document); });",
+      "  document.addEventListener('shiny:value', function (evt) {",
+      "    setTimeout(function () {",
+      "      var root = evt && evt.target ? evt.target : document;",
+      "      restore(root);",
+      "      initLogScroll(root);",
+      "    }, 0);",
+      "  });",
+      "  saveAll(document);",
+      "  document.addEventListener('shiny:connected', function () { restore(document); initLogScroll(document); });",
       "  function formatDuration(sec) {",
       "    if (!isFinite(sec) || sec < 0) sec = 0;",
       "    sec = Math.floor(sec);",
@@ -353,7 +471,47 @@ dashboard_scroll_js <- function() {
       "    setTimeout(function () { updateRunningElapsed(evt && evt.target ? evt.target : document); }, 0);",
       "  });",
       "  document.addEventListener('shiny:connected', function () { updateRunningElapsed(document); });",
-      "  if (window.Shiny && window.Shiny.addCustomMessageHandler) {",
+      "  document.addEventListener('click', function (evt) {",
+      "    var target = evt.target;",
+      "    var btn = target && target.closest ? target.closest('[data-taskr-action]') : null;",
+      "    if (!btn || btn.disabled) return;",
+      "    var action = btn.getAttribute('data-taskr-action') || '';",
+      "    var taskId = btn.getAttribute('data-taskr-task-id') || '';",
+      "    if (!action || !taskId) return;",
+      "    evt.preventDefault();",
+      "    if (!window.Shiny || !window.Shiny.setInputValue) return;",
+      "    window.Shiny.setInputValue('taskr_card_action', {",
+      "      action: action,",
+      "      task_id: taskId,",
+      "      nonce: Date.now() + ':' + Math.random()",
+      "    }, { priority: 'event' });",
+      "  });",
+      "  function registerTaskrShinyHandlers() {",
+      "    if (window.__taskrShinyHandlersRegistered) return;",
+      "    if (!window.Shiny || !window.Shiny.addCustomMessageHandler) {",
+      "      setTimeout(registerTaskrShinyHandlers, 50);",
+      "      return;",
+      "    }",
+      "    window.__taskrShinyHandlersRegistered = true;",
+      "    window.Shiny.addCustomMessageHandler('taskr_update_logs', function (msg) {",
+      "      var taskId = msg && msg.task_id ? String(msg.task_id) : '';",
+      "      if (!taskId || !document.querySelector) return;",
+      "      var node = document.querySelector('[data-log-task-id=\"' + taskId + '\"]');",
+      "      if (!node) return;",
+      "      var text = msg && Object.prototype.hasOwnProperty.call(msg, 'text') ? String(msg.text) : '';",
+      "      var bottomGap = node.scrollHeight - (node.scrollTop + node.clientHeight);",
+      "      var nearBottom = bottomGap <= 16;",
+      "      var prevTop = node.scrollTop;",
+      "      var shouldStickToBottom = nearBottom || logShouldStick(node);",
+      "      node.textContent = text;",
+      "      if (shouldStickToBottom) {",
+      "        scrollLogToBottom(node);",
+      "      } else {",
+      "        node.scrollTop = prevTop;",
+      "        save(node);",
+      "        rememberLogStick(node);",
+      "      }",
+      "    });",
       "    window.Shiny.addCustomMessageHandler('taskr_focus_task', function (msg) {",
       "      var taskId = msg && msg.task_id ? String(msg.task_id) : '';",
       "      if (!taskId) return;",
@@ -380,7 +538,82 @@ dashboard_scroll_js <- function() {
       "        container.scrollTop = Math.max(0, top - 12);",
       "      }",
       "    });",
+      "    function forceCloseTaskrModal() {",
+      "      var modals = document.querySelectorAll ? document.querySelectorAll('.modal') : [];",
+      "      Array.prototype.forEach.call(modals, function (modal) {",
+      "        modal.classList.remove('show');",
+      "        modal.classList.remove('in');",
+      "        modal.setAttribute('aria-hidden', 'true');",
+      "        modal.style.display = 'none';",
+      "      });",
+      "      var backdrops = document.querySelectorAll ? document.querySelectorAll('.modal-backdrop') : [];",
+      "      Array.prototype.forEach.call(backdrops, function (node) {",
+      "        if (node && node.parentNode) node.parentNode.removeChild(node);",
+      "      });",
+      "      if (document.body && document.body.classList) {",
+      "        document.body.classList.remove('modal-open');",
+      "      }",
+      "      if (document.body && document.body.style) {",
+      "        document.body.style.removeProperty('padding-right');",
+      "        document.body.style.removeProperty('overflow');",
+      "      }",
+      "    }",
+      "    window.Shiny.addCustomMessageHandler('taskr_force_close_modal', function (msg) {",
+      "      forceCloseTaskrModal();",
+      "      setTimeout(forceCloseTaskrModal, 50);",
+      "      setTimeout(forceCloseTaskrModal, 250);",
+      "    });",
+      "    window.Shiny.addCustomMessageHandler('taskr_control_request', function (msg) {",
+      "      var requestId = msg && msg.request_id ? String(msg.request_id) : '';",
+      "      var action = msg && msg.action ? String(msg.action) : '';",
+      "      var taskId = msg && msg.task_id ? String(msg.task_id) : '';",
+      "      var url = msg && msg.url ? String(msg.url) : '';",
+      "      var endpoint = msg && msg.endpoint ? String(msg.endpoint) : '';",
+      "      var token = msg && msg.token ? String(msg.token) : '';",
+      "      if (!requestId || !url || !endpoint) return;",
+      "      var payload = { token: token };",
+      "      if (taskId) payload.task_id = taskId;",
+      "      if (window.console && window.console.debug) {",
+      "        window.console.debug('[taskr] control request', action, taskId, url + endpoint);",
+      "      }",
+      "      var done = false;",
+      "      var controller = window.AbortController ? new AbortController() : null;",
+      "      var timer = setTimeout(function () {",
+      "        if (done) return;",
+      "        if (controller) controller.abort();",
+      "      }, 10000);",
+      "      fetch(url + endpoint, {",
+      "        method: 'POST',",
+      "        headers: { 'Content-Type': 'text/plain' },",
+      "        body: JSON.stringify(payload),",
+      "        signal: controller ? controller.signal : undefined",
+      "      }).then(function (response) {",
+      "        return response.text().then(function (text) {",
+      "          var data = {};",
+      "          try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { ok: false, error: text || String(e) }; }",
+      "          data.http_status = response.status;",
+      "          data.request_id = requestId;",
+      "          data.action = action;",
+      "          data.task_id = taskId;",
+      "          if (!response.ok && data.ok !== false) data.ok = false;",
+      "          return data;",
+      "        });",
+      "      }).catch(function (err) {",
+      "        return { ok: false, request_id: requestId, action: action, task_id: taskId, error: String(err) };",
+      "      }).then(function (data) {",
+      "        done = true;",
+      "        clearTimeout(timer);",
+      "        if (window.console && window.console.debug) {",
+      "          window.console.debug('[taskr] control result', data);",
+      "        }",
+      "        if (window.Shiny && window.Shiny.setInputValue) {",
+      "          window.Shiny.setInputValue('taskr_control_result', data, { priority: 'event' });",
+      "        }",
+      "      });",
+      "    });",
       "  }",
+      "  registerTaskrShinyHandlers();",
+      "  document.addEventListener('shiny:connected', registerTaskrShinyHandlers);",
       "})();",
       sep = "\n"
     )
@@ -418,36 +651,77 @@ queue_dashboard_ui <- function() {
           width = 12,
           shiny::div(
             class = "block-card",
-            shiny::uiOutput("running_cards")
+            dashboard_column_shell_ui(
+              header_output_id = "running_header",
+              body_output_id = "running_cards_body",
+              scroll_key = "col-running"
+            )
           )
         )
       ),
       shiny::fluidRow(
         class = "dashboard-row",
-        shiny::column(width = 12, shiny::div(class = "block-card", shiny::uiOutput("queued_cards")))
+        shiny::column(
+          width = 12,
+          shiny::div(
+            class = "block-card",
+            dashboard_column_shell_ui(
+              header_output_id = "queued_header",
+              body_output_id = "queued_cards_body",
+              scroll_key = "col-queued"
+            )
+          )
+        )
       ),
       shiny::fluidRow(
         class = "dashboard-row",
-        shiny::column(width = 12, shiny::div(class = "block-card", shiny::uiOutput("finished_cards")))
+        shiny::column(
+          width = 12,
+          shiny::div(
+            class = "block-card",
+            dashboard_column_shell_ui(
+              header_output_id = "finished_header",
+              subheader_output_id = "finished_subheader",
+              body_output_id = "finished_cards_body",
+              scroll_key = "col-finished"
+            )
+          )
+        )
       )
     )
   )
 }
 
-queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path = NULL, command_path = NULL) {
+queue_dashboard_app <- function(
+    data_mode = c("live", "snapshot"),
+    snapshot_path = NULL,
+    control_url = NULL,
+    control_token = NULL,
+    cancel_dir = NULL) {
   if (!requireNamespace("shiny", quietly = TRUE)) {
     stop("`launch_dashboard()` requires the `shiny` package. Install it with install.packages('shiny').")
   }
 
   data_mode <- match.arg(data_mode)
   read_only <- identical(data_mode, "snapshot")
-  control_via_commands <- isTRUE(read_only) &&
-    !is.null(command_path) &&
-    is.character(command_path) &&
-    length(command_path) == 1 &&
-    !is.na(command_path) &&
-    nzchar(command_path)
-  can_control <- !isTRUE(read_only) || isTRUE(control_via_commands)
+  control_via_server <- isTRUE(read_only) &&
+    !is.null(control_url) &&
+    is.character(control_url) &&
+    length(control_url) == 1 &&
+    !is.na(control_url) &&
+    nzchar(control_url) &&
+    !is.null(control_token) &&
+    is.character(control_token) &&
+    length(control_token) == 1 &&
+    !is.na(control_token) &&
+    nzchar(control_token)
+  control_via_files <- isTRUE(read_only) &&
+    !is.null(cancel_dir) &&
+    is.character(cancel_dir) &&
+    length(cancel_dir) == 1 &&
+    !is.na(cancel_dir) &&
+    nzchar(cancel_dir)
+  can_control <- !isTRUE(read_only) || isTRUE(control_via_files) || isTRUE(control_via_server)
   if (!isTRUE(read_only)) {
     ensure_queue_initialized()
   }
@@ -456,42 +730,189 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
     ui = queue_dashboard_ui(),
     server = function(input, output, session) {
       selected_id <- shiny::reactiveVal(NULL)
+      selected_panel_tracker <- shiny::reactiveVal(setNames(character(), character()))
       pending_running_cancel <- shiny::reactiveVal(NULL)
       refresh_nonce <- shiny::reactiveVal(0L)
-      observed_select_ids <- shiny::reactiveVal(character())
-      observed_cancel_ids <- shiny::reactiveVal(character())
       finished_filter_status <- shiny::reactiveVal("completed")
-      display_progress_cache <- shiny::reactiveVal(list())
+      display_progress_cache <- new.env(parent = emptyenv())
       pending_cancel_ids <- shiny::reactiveVal(character())
+      pending_cancel_requests <- shiny::reactiveVal(setNames(character(), character()))
       action_cooldown <- shiny::reactiveVal(list())
-      read_snapshot_tasks <- function() {
+      last_focus_target <- shiny::reactiveVal("")
+      read_snapshot_state <- function() {
         out <- tryCatch(read_dashboard_snapshot(path = snapshot_path), error = function(e) NULL)
         if (is.null(out)) {
-          return(list(tasks = empty_dashboard_table(), max_slots = 1L))
+          return(list(
+            session_id = NA_character_,
+            tasks = empty_dashboard_table(),
+            max_slots = 1L,
+            cancel_dir = cancel_dir %||% NA_character_
+          ))
         }
         list(
+          session_id = out$session_id %||% NA_character_,
           tasks = out$tasks %||% empty_dashboard_table(),
-          max_slots = as.integer(out$max_slots %||% 1L)
+          max_slots = as.integer(out$max_slots %||% 1L),
+          cancel_dir = out$cancel_dir %||% cancel_dir %||% NA_character_
         )
+      }
+
+      send_control_request <- function(action, task_id = NULL) {
+        if (!isTRUE(control_via_server)) {
+          shiny::showNotification("Dashboard control server is not available.", type = "error")
+          return(NULL)
+        }
+
+        if (identical(action, "cancel")) {
+          endpoint <- "/cancel"
+        } else if (identical(action, "clean_finished")) {
+          endpoint <- "/clean_finished"
+        } else {
+          endpoint <- "/clear_all"
+        }
+        request_id <- new_dashboard_session_id()
+        session$sendCustomMessage(
+          "taskr_control_request",
+          list(
+            request_id = request_id,
+            action = action,
+            endpoint = endpoint,
+            url = control_url,
+            token = control_token,
+            task_id = task_id %||% ""
+          )
+        )
+        request_id
+      }
+
+      close_dashboard_modal <- function() {
+        # Shiny sometimes leaves a Bootstrap backdrop behind when the modal
+        # close and an async browser request are flushed together. Force a
+        # front-end cleanup so the dashboard remains usable while cancel runs.
+        shiny::removeModal()
+        session$sendCustomMessage("taskr_force_close_modal", list())
+        invisible(NULL)
+      }
+
+      # Kill a running task process directly from the dashboard process.
+      # Args:
+      # - pid: Operating-system PID from the dashboard snapshot.
+      # Returns:
+      # - Invisibly returns TRUE when a plausible PID was targeted, otherwise FALSE.
+      # Side effects:
+      # - Sends TERM first, then KILL. Cancel is resource control, so releasing
+      #   the process is more important than waiting for a graceful log flush.
+      kill_dashboard_pid <- function(pid) {
+        pid <- suppressWarnings(as.integer(pid))
+        if (length(pid) != 1 || is.na(pid) || pid < 1L) {
+          return(invisible(FALSE))
+        }
+
+        try(tools::pskill(pid, signal = tools::SIGTERM), silent = TRUE)
+        Sys.sleep(0.1)
+        try(tools::pskill(pid, signal = tools::SIGKILL), silent = TRUE)
+        invisible(TRUE)
+      }
+
+      # Request cancellation without waiting for the main R console.
+      # Args:
+      # - task_id: Task id to cancel.
+      # - row: Optional one-row dashboard snapshot, used to find the PID.
+      # Returns:
+      # - TRUE when the file-based control path is available, otherwise FALSE.
+      # Side effects:
+      # - Writes a cancel marker for the scheduler and kills the process PID
+      #   immediately when the snapshot contains one.
+      request_local_cancel <- function(task_id, row = NULL) {
+        if (!isTRUE(control_via_files)) {
+          return(FALSE)
+        }
+
+        write_dashboard_cancel_marker(task_id = task_id, cancel_dir = cancel_dir)
+        if (!is.null(row) && nrow(row) > 0 && "pid" %in% names(row)) {
+          kill_dashboard_pid(row$pid[[1]])
+        }
+        TRUE
+      }
+
+      # Request finished-record cleanup through the same marker directory used
+      # for robust dashboard cancellation.
+      # Args:
+      # - None.
+      # Returns:
+      # - TRUE when the file-based control path is available, otherwise FALSE.
+      # Side effects:
+      # - Writes a cleanup marker consumed by the main scheduler tick.
+      request_local_clean_finished <- function() {
+        if (!isTRUE(control_via_files)) {
+          return(FALSE)
+        }
+
+        write_dashboard_clean_finished_marker(cancel_dir = cancel_dir)
+        TRUE
+      }
+
+      cached_display_progress <- function(task_id) {
+        if (!exists(task_id, envir = display_progress_cache, inherits = FALSE)) {
+          return(NA_real_)
+        }
+        suppressWarnings(as.numeric(get(task_id, envir = display_progress_cache, inherits = FALSE)))
+      }
+
+      remember_display_progress <- function(task_id, progress) {
+        assign(task_id, as.numeric(progress), envir = display_progress_cache)
+        invisible(NULL)
+      }
+
+      drop_stale_display_progress <- function(active_ids) {
+        cached_ids <- ls(display_progress_cache, all.names = TRUE)
+        stale_ids <- setdiff(cached_ids, as.character(active_ids))
+        if (length(stale_ids) > 0) {
+          rm(list = stale_ids, envir = display_progress_cache)
+        }
+        invisible(NULL)
+      }
+
+      remember_pending_cancel <- function(task_id, request_id) {
+        req <- pending_cancel_requests()
+        req[[request_id]] <- task_id
+        pending_cancel_requests(req)
+        pending_cancel_ids(unique(c(pending_cancel_ids(), task_id)))
+      }
+
+      forget_pending_cancel <- function(request_id) {
+        req <- pending_cancel_requests()
+        task_id <- as.character(req[[request_id]] %||% "")
+        req[[request_id]] <- NULL
+        pending_cancel_requests(req)
+
+        if (!nzchar(task_id)) {
+          return(invisible(NULL))
+        }
+
+        still_pending <- task_id %in% as.character(unname(req))
+        if (!isTRUE(still_pending)) {
+          pending_cancel_ids(setdiff(pending_cancel_ids(), task_id))
+        }
+        invisible(NULL)
+      }
+
+      read_current_dashboard_tasks <- function() {
+        if (isTRUE(read_only)) {
+          return(read_snapshot_state()$tasks)
+        }
+        tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
       }
 
       state_tasks <- shiny::reactivePoll(
         intervalMillis = 1000,
         session = session,
         checkFunc = function() {
-          tab <- if (isTRUE(read_only)) {
-            read_snapshot_tasks()$tasks
-          } else {
-            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
-          }
+          tab <- read_current_dashboard_tasks()
           paste0(dashboard_state_signature(tab), "-", refresh_nonce())
         },
         valueFunc = function() {
-          tab <- if (isTRUE(read_only)) {
-            read_snapshot_tasks()$tasks
-          } else {
-            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
-          }
+          tab <- read_current_dashboard_tasks()
           add_dashboard_derived_columns(tab, now = Sys.time())
         }
       )
@@ -500,20 +921,39 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         intervalMillis = 1000,
         session = session,
         checkFunc = function() {
-          tab <- if (isTRUE(read_only)) {
-            read_snapshot_tasks()$tasks
-          } else {
-            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
-          }
+          tab <- read_current_dashboard_tasks()
           paste0(dashboard_running_signature(tab), "-", refresh_nonce())
         },
         valueFunc = function() {
-          tab <- if (isTRUE(read_only)) {
-            read_snapshot_tasks()$tasks
-          } else {
-            tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
-          }
+          tab <- read_current_dashboard_tasks()
           add_dashboard_derived_columns(tab, now = Sys.time())
+        }
+      )
+
+      expanded_running_log_text <- shiny::reactivePoll(
+        intervalMillis = 1000,
+        session = session,
+        checkFunc = function() {
+          task_id <- as.character(selected_id() %||% "")
+          if (!nzchar(task_id)) {
+            return("running-log:none")
+          }
+          tab <- read_current_dashboard_tasks()
+          paste0(dashboard_running_log_signature(tab, task_id = task_id), "-", refresh_nonce())
+        },
+        valueFunc = function() {
+          task_id <- as.character(selected_id() %||% "")
+          if (!nzchar(task_id)) {
+            return(NULL)
+          }
+
+          tab <- add_dashboard_derived_columns(read_current_dashboard_tasks(), now = Sys.time())
+          row <- tab[tab$id == task_id & tab$status == "running", , drop = FALSE]
+          if (nrow(row) == 0) {
+            return(NULL)
+          }
+
+          list(task_id = task_id, text = dashboard_log_text_from_row(row, tail_n = 120L))
         }
       )
 
@@ -531,9 +971,37 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         split_dashboard_tasks(filtered_state_tasks())
       })
 
+      shiny::observe({
+        tab <- state_tasks()
+        current_panel <- setNames(character(), character())
+
+        if (nrow(tab) > 0) {
+          status <- as.character(tab$status %||% character())
+          panel <- ifelse(
+            status %in% c("completed", "failed", "cancelled"),
+            "finished",
+            status
+          )
+          current_panel <- stats::setNames(as.character(panel), as.character(tab$id))
+        }
+
+        previous_panel <- selected_panel_tracker()
+        moved_ids <- intersect(names(previous_panel), names(current_panel))
+        moved_ids <- moved_ids[previous_panel[moved_ids] != current_panel[moved_ids]]
+
+        if (length(moved_ids) > 0) {
+          current_selected <- selected_id()
+          if (!is.null(current_selected) && current_selected %in% moved_ids) {
+            selected_id(NULL)
+          }
+        }
+
+        selected_panel_tracker(current_panel)
+      })
+
       output$summary_progress <- shiny::renderUI({
         slots <- if (isTRUE(read_only)) {
-          read_snapshot_tasks()$max_slots %||% 1L
+          read_snapshot_state()$max_slots %||% 1L
         } else {
           pkg_env$scheduler$capacity$slots %||% 1L
         }
@@ -558,15 +1026,19 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         shiny::actionButton("clear_all_tasks", "Clear All", class = "btn btn-danger btn-sm")
       })
 
-      output$running_cards <- shiny::renderUI({
+      output$running_header <- shiny::renderUI({
+        running_n <- nrow(filtered_running_tasks())
+        shiny::div(
+          class = "dashboard-column-header",
+          shiny::div(class = "dashboard-column-title", sprintf("Running (%d)", running_n))
+        )
+      })
+
+      output$running_cards_body <- shiny::renderUI({
         expanded_task_id <- selected_id()
         running_tab <- filtered_running_tasks()
         now_ts <- Sys.time()
         fallback_wait_sec <- dashboard_initial_progress_wait_sec()
-        progress_cache <- display_progress_cache()
-        if (is.null(progress_cache)) {
-          progress_cache <- list()
-        }
 
         chain_by_id <- list()
         progress_by_id <- list()
@@ -575,7 +1047,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           task_row <- running_tab[i, , drop = FALSE]
           task_id <- as.character(task_row$id[[1]])
           task_progress <- as.numeric(task_row$progress[[1]])
-          cached_progress <- suppressWarnings(as.numeric(progress_cache[[task_id]] %||% NA_real_))
+          cached_progress <- cached_display_progress(task_id)
 
           # Parse progress from the already-polled row snapshot to avoid an
           # extra per-task log query during each UI refresh.
@@ -593,21 +1065,14 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           )
 
           progress_by_id[[task_id]] <- resolved
-          progress_cache[[task_id]] <- resolved
+          remember_display_progress(task_id, resolved)
         }
 
         running_ids <- as.character(running_tab$id %||% character())
-        if (length(progress_cache) > 0) {
-          drop_ids <- setdiff(names(progress_cache), running_ids)
-          if (length(drop_ids) > 0) {
-            progress_cache[drop_ids] <- NULL
-          }
-        }
-        display_progress_cache(progress_cache)
+        drop_stale_display_progress(running_ids)
 
-        column_cards_ui(
+        dashboard_card_list_ui(
           running_tab,
-          title = "Running",
           renderer = function(task) {
             task_id <- as.character(task$id[[1]])
             running_task_card_ui(
@@ -627,11 +1092,18 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         )
       })
 
-      output$queued_cards <- shiny::renderUI({
+      output$queued_header <- shiny::renderUI({
+        queued_n <- nrow(state_split()$queued)
+        shiny::div(
+          class = "dashboard-column-header",
+          shiny::div(class = "dashboard-column-title", sprintf("Queued (%d)", queued_n))
+        )
+      })
+
+      output$queued_cards_body <- shiny::renderUI({
         expanded_task_id <- selected_id()
-        column_cards_ui(
+        dashboard_card_list_ui(
           state_split()$queued,
-          title = "Queued",
           renderer = function(task) {
             queued_task_card_ui(
               {
@@ -648,28 +1120,44 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         )
       })
 
-      output$finished_cards <- shiny::renderUI({
-        expanded_task_id <- selected_id()
+      output$finished_header <- shiny::renderUI({
+        finished_all <- state_split()$finished
+        selected_filter <- finished_filter_status()
+        finished_n <- sum(finished_all$status == selected_filter)
+        header_right <- if (isTRUE(can_control)) {
+          shiny::actionButton("clean_finished", "Clean Finished", class = "btn btn-warning btn-sm")
+        } else {
+          NULL
+        }
+        shiny::div(
+          class = "dashboard-column-header",
+          shiny::div(class = "dashboard-column-title", sprintf("Finished (%d)", finished_n)),
+          header_right
+        )
+      })
+
+      output$finished_subheader <- shiny::renderUI({
         finished_all <- state_split()$finished
         completed_n <- sum(finished_all$status == "completed")
         failed_n <- sum(finished_all$status == "failed")
         cancelled_n <- sum(finished_all$status == "cancelled")
         selected_filter <- finished_filter_status()
-        finished_filtered <- finished_all[finished_all$status == selected_filter, , drop = FALSE]
+        finished_filter_controls_ui(
+          completed_n = completed_n,
+          failed_n = failed_n,
+          cancelled_n = cancelled_n,
+          selected = selected_filter
+        )
+      })
 
-        column_cards_ui(
+      output$finished_cards_body <- shiny::renderUI({
+        expanded_task_id <- selected_id()
+        finished_all <- state_split()$finished
+        selected_filter <- finished_filter_status()
+        finished_filtered <- finished_all[finished_all$status == selected_filter, , drop = FALSE]
+        dashboard_card_list_ui(
           finished_filtered,
-          title = "Finished",
-          renderer = function(task) finished_task_card_ui(task, expanded = identical(task$id, expanded_task_id)),
-          header_right = if (isTRUE(can_control)) {
-            shiny::actionButton("clean_finished", "Clean Finished", class = "btn btn-warning btn-sm")
-          },
-          subheader = finished_filter_controls_ui(
-            completed_n = completed_n,
-            failed_n = failed_n,
-            cancelled_n = cancelled_n,
-            selected = selected_filter
-          )
+          renderer = function(task) finished_task_card_ui(task, expanded = identical(task$id, expanded_task_id))
         )
       })
 
@@ -697,109 +1185,96 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         TRUE
       }
 
-      observe_register_buttons <- function(prefix, ids, ids_store, handler) {
-        known <- ids_store()
-        new_ids <- setdiff(ids, known)
-
-        if (length(new_ids) == 0) {
-          return(invisible(NULL))
+      select_card_task <- function(task_id) {
+        if (identical(selected_id(), task_id)) {
+          selected_id(NULL)
+        } else {
+          selected_id(task_id)
         }
-
-        for (task_id in new_ids) {
-          button_id <- button_id_for_task(prefix, task_id)
-          local({
-            current_task_id <- task_id
-            current_button_id <- button_id
-            shiny::observeEvent(input[[current_button_id]], {
-              handler(current_task_id)
-            }, ignoreInit = TRUE)
-          })
-        }
-
-        ids_store(unique(c(known, new_ids)))
         invisible(NULL)
       }
 
-      observe_task_buttons <- shiny::observe({
-        ids <- unique(c(
-          filtered_running_tasks()$id,
-          state_split()$queued$id,
-          state_split()$finished$id
-        ))
+      cancel_card_task <- function(task_id) {
+        if (!isTRUE(can_control)) {
+          return(invisible(NULL))
+        }
 
-        observe_register_buttons(
-          prefix = "select",
-          ids = ids,
-          ids_store = observed_select_ids,
-          handler = function(task_id) {
-            if (identical(selected_id(), task_id)) {
-              selected_id(NULL)
-            } else {
-              selected_id(task_id)
-            }
+        current <- state_tasks()
+        if (nrow(current) == 0) {
+          current <- running_tasks()
+        }
+        row <- current[current$id == task_id, , drop = FALSE]
+        if (nrow(row) == 0) {
+          return(invisible(NULL))
+        }
+
+        if (identical(row$status[[1]], "running")) {
+          pending_running_cancel(task_id)
+          shiny::showModal(shiny::modalDialog(
+            title = "Cancel running task?",
+            sprintf("Task '%s' is running. Cancel now?", row$label[[1]]),
+            footer = shiny::tagList(
+              shiny::modalButton("Keep running"),
+              shiny::actionButton("confirm_running_cancel", "Cancel task", class = "btn btn-danger")
+            )
+          ))
+          return(invisible(NULL))
+        }
+
+        if (identical(row$status[[1]], "queued")) {
+          if (!can_issue_action(paste0("cancel::", task_id))) {
+            return(invisible(NULL))
           }
-        )
 
-        observe_register_buttons(
-          prefix = "cancel",
-          ids = if (isTRUE(can_control)) ids else character(),
-          ids_store = observed_cancel_ids,
-          handler = function(task_id) {
-            current <- state_tasks()
-            if (nrow(current) == 0) {
-              current <- running_tasks()
+          if (isTRUE(control_via_files)) {
+            request_local_cancel(task_id = task_id, row = row)
+            request_id <- new_dashboard_session_id()
+            remember_pending_cancel(task_id = task_id, request_id = request_id)
+            shiny::showNotification("Queued task cancellation requested.", type = "message")
+            refresh_nonce(refresh_nonce() + 1L)
+          } else if (isTRUE(control_via_server)) {
+            request_id <- send_control_request("cancel", task_id = task_id)
+            if (!is.null(request_id)) {
+              remember_pending_cancel(task_id = task_id, request_id = request_id)
             }
-            row <- current[current$id == task_id, , drop = FALSE]
-            if (nrow(row) == 0) {
-              return(invisible(NULL))
-            }
-
-            if (identical(row$status[[1]], "running")) {
-              pending_running_cancel(task_id)
-              shiny::showModal(shiny::modalDialog(
-                title = "Cancel running task?",
-                sprintf("Task '%s' is running. Cancel now?", row$label[[1]]),
-                footer = shiny::tagList(
-                  shiny::modalButton("Keep running"),
-                  shiny::actionButton("confirm_running_cancel", "Cancel task", class = "btn btn-danger")
-                )
-              ))
-              return(invisible(NULL))
-            }
-
-            if (identical(row$status[[1]], "queued")) {
-              if (!can_issue_action(paste0("cancel::", task_id))) {
-                return(invisible(NULL))
+          } else {
+            tryCatch(
+              {
+                cancel_task(task_id)
+                shiny::showNotification("Queued task canceled.", type = "message")
+              },
+              error = function(e) {
+                shiny::showNotification(conditionMessage(e), type = "error")
               }
-
-              if (isTRUE(control_via_commands)) {
-                try(dashboard_enqueue_command("cancel_task", task_id = task_id, path = command_path), silent = TRUE)
-                pending_cancel_ids(unique(c(pending_cancel_ids(), task_id)))
-              } else {
-                tryCatch(
-                  {
-                    cancel_task(task_id)
-                    shiny::showNotification("Queued task canceled.", type = "message")
-                  },
-                  error = function(e) {
-                    shiny::showNotification(conditionMessage(e), type = "error")
-                  }
-                )
-              }
-            }
-            invisible(NULL)
+            )
           }
-        )
-
+        }
         invisible(NULL)
-      })
+      }
+
+      shiny::observeEvent(input$taskr_card_action, {
+        event <- input$taskr_card_action
+        action <- as.character(event$action %||% "")
+        task_id <- as.character(event$task_id %||% "")
+        if (!nzchar(action) || !nzchar(task_id)) {
+          return(invisible(NULL))
+        }
+
+        if (identical(action, "select")) {
+          return(select_card_task(task_id))
+        }
+        if (identical(action, "cancel")) {
+          return(cancel_card_task(task_id))
+        }
+        invisible(NULL)
+      }, ignoreInit = TRUE)
 
       shiny::observeEvent(input$confirm_running_cancel, {
         if (!isTRUE(can_control)) {
           return(invisible(NULL))
         }
         task_id <- pending_running_cancel()
-        shiny::removeModal()
+        close_dashboard_modal()
         if (is.null(task_id)) {
           return(invisible(NULL))
         }
@@ -809,9 +1284,19 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           return(invisible(NULL))
         }
 
-        if (isTRUE(control_via_commands)) {
-          try(dashboard_enqueue_command("cancel_task", task_id = task_id, path = command_path), silent = TRUE)
-          pending_cancel_ids(unique(c(pending_cancel_ids(), task_id)))
+        if (isTRUE(control_via_files)) {
+          current <- state_tasks()
+          row <- current[current$id == task_id, , drop = FALSE]
+          request_local_cancel(task_id = task_id, row = row)
+          request_id <- new_dashboard_session_id()
+          remember_pending_cancel(task_id = task_id, request_id = request_id)
+          shiny::showNotification("Running task cancellation requested.", type = "message")
+          refresh_nonce(refresh_nonce() + 1L)
+        } else if (isTRUE(control_via_server)) {
+          request_id <- send_control_request("cancel", task_id = task_id)
+          if (!is.null(request_id)) {
+            remember_pending_cancel(task_id = task_id, request_id = request_id)
+          }
         } else {
           tryCatch(
             {
@@ -831,6 +1316,19 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         if (!isTRUE(can_control)) {
           return(invisible(NULL))
         }
+
+        if (isTRUE(control_via_server)) {
+          send_control_request("clean_finished")
+          return(invisible(NULL))
+        }
+
+        if (isTRUE(control_via_files)) {
+          request_local_clean_finished()
+          refresh_nonce(refresh_nonce() + 1L)
+          shiny::showNotification("Finished task cleanup requested.", type = "message")
+          return(invisible(NULL))
+        }
+
         tryCatch(
           {
             clean_tasks()
@@ -865,18 +1363,31 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           return(invisible(NULL))
         }
 
-        shiny::removeModal()
+        close_dashboard_modal()
         if (!can_issue_action("clear_all")) {
           return(invisible(NULL))
         }
 
-        if (isTRUE(control_via_commands)) {
+        if (isTRUE(control_via_files)) {
+          all_tab <- state_tasks()
+          active <- all_tab[all_tab$status %in% c("running", "queued"), , drop = FALSE]
+          if (nrow(active) > 0) {
+            for (i in seq_len(nrow(active))) {
+              task_id <- as.character(active$id[[i]])
+              request_local_cancel(task_id = task_id, row = active[i, , drop = FALSE])
+            }
+            pending_cancel_ids(unique(c(pending_cancel_ids(), active$id)))
+          }
+          request_local_clean_finished()
+          refresh_nonce(refresh_nonce() + 1L)
+          shiny::showNotification("All task cleanup requested.", type = "message")
+        } else if (isTRUE(control_via_server)) {
           all_tab <- state_tasks()
           active_ids <- all_tab$id[all_tab$status %in% c("running", "queued")]
           if (length(active_ids) > 0) {
             pending_cancel_ids(unique(c(pending_cancel_ids(), active_ids)))
           }
-          try(dashboard_enqueue_command("clear_all", path = command_path), silent = TRUE)
+          send_control_request("clear_all")
         } else {
           slots <- as.integer(pkg_env$scheduler$capacity$slots %||% 1L)
           if (is.na(slots) || slots < 1L) {
@@ -887,7 +1398,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
             {
               shutdown_queue()
               init_queue(max_slots = slots)
-              display_progress_cache(list())
+              drop_stale_display_progress(character())
               selected_id(NULL)
               shiny::showNotification("All tasks cleared.", type = "message")
             },
@@ -905,7 +1416,39 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         all_tab <- state_tasks()
         active_ids <- all_tab$id[all_tab$status %in% c("running", "queued")]
         pending_cancel_ids(intersect(pending_cancel_ids(), active_ids))
+
+        req <- pending_cancel_requests()
+        if (length(req) > 0) {
+          keep <- as.character(unname(req)) %in% active_ids
+          pending_cancel_requests(req[keep])
+        }
       })
+
+      shiny::observeEvent(input$taskr_control_result, {
+        result <- input$taskr_control_result
+        request_id <- as.character(result$request_id %||% "")
+        action <- as.character(result$action %||% "")
+
+        if (identical(action, "cancel") && nzchar(request_id)) {
+          forget_pending_cancel(request_id)
+        }
+        if (identical(action, "clear_all")) {
+          pending_cancel_ids(character())
+          pending_cancel_requests(setNames(character(), character()))
+        }
+
+        ok <- isTRUE(result$ok)
+        message <- as.character(result$message %||% "")
+        error <- as.character(result$error %||% "")
+        if (ok) {
+          shiny::showNotification(if (nzchar(message)) message else "Dashboard control action completed.", type = "message")
+        } else {
+          shiny::showNotification(if (nzchar(error)) error else "Dashboard control action failed.", type = "error")
+        }
+
+        refresh_nonce(refresh_nonce() + 1L)
+        invisible(NULL)
+      }, ignoreInit = TRUE)
 
       shiny::observe({
         # Keep expanded id valid when data updates.
@@ -926,6 +1469,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       shiny::observe({
         current_id <- selected_id()
         if (is.null(current_id)) {
+          last_focus_target("")
           return(invisible(NULL))
         }
 
@@ -948,6 +1492,12 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           return(invisible(NULL))
         }
 
+        focus_target <- paste(current_id, container_key, sep = "::")
+        if (identical(last_focus_target(), focus_target)) {
+          return(invisible(NULL))
+        }
+        last_focus_target(focus_target)
+
         session$onFlushed(function() {
           session$sendCustomMessage(
             "taskr_focus_task",
@@ -956,9 +1506,18 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         }, once = TRUE)
       })
 
-      shiny::onSessionEnded(function() {
-        observe_task_buttons$destroy()
+      shiny::observe({
+        payload <- expanded_running_log_text()
+        if (is.null(payload)) {
+          return(invisible(NULL))
+        }
+        session$sendCustomMessage(
+          "taskr_update_logs",
+          list(task_id = payload$task_id, text = payload$text)
+        )
+        invisible(NULL)
       })
+
     }
   )
 

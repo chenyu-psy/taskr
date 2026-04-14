@@ -21,6 +21,7 @@ empty_dashboard_table <- function() {
     submit_time = as.POSIXct(character()),
     start_time = as.POSIXct(character()),
     end_time = as.POSIXct(character()),
+    pid = integer(),
     stdout = character(),
     stderr = character(),
     stringsAsFactors = FALSE
@@ -140,6 +141,27 @@ dashboard_item_slots <- function(item) {
   slots
 }
 
+# Read the operating-system PID for a running task process.
+# Args:
+# - item: Task item list from scheduler state.
+# Returns:
+# - Integer PID when available, otherwise NA_integer_.
+# Assumptions:
+# - Only running callr-backed tasks expose a process with get_pid().
+dashboard_item_pid <- function(item) {
+  task <- item$task %||% NULL
+  process <- if (is.null(task)) NULL else task$process %||% NULL
+  if (is.null(process) || is.null(process$get_pid) || !is.function(process$get_pid)) {
+    return(NA_integer_)
+  }
+
+  pid <- suppressWarnings(as.integer(tryCatch(process$get_pid(), error = function(e) NA_integer_)))
+  if (length(pid) != 1 || is.na(pid) || pid < 1L) {
+    return(NA_integer_)
+  }
+  pid
+}
+
 # Convert one scheduler task item to a single dashboard table row.
 # Args:
 # - item: Task item list from scheduler state.
@@ -158,6 +180,7 @@ dashboard_item_to_row <- function(item) {
     submit_time = normalize_dashboard_posixct(item$submit_time %||% NA),
     start_time = normalize_dashboard_posixct(item$start_time %||% NA),
     end_time = normalize_dashboard_posixct(item$end_time %||% NA),
+    pid = dashboard_item_pid(item),
     stdout = as.character(item$stdout_buffer %||% ""),
     stderr = as.character(item$stderr_buffer %||% ""),
     stringsAsFactors = FALSE
@@ -210,7 +233,30 @@ dashboard_state_signature <- function(tab) {
   )
 }
 
-# Build an event-style signature for running-task content updates.
+# Build a compact signature for log text that can affect visible progress.
+# Args:
+# - text: Log text from stdout or stderr.
+# - tail_chars: Number of trailing characters to include.
+# Returns:
+# - Character scalar containing text length and tail text.
+# Notes:
+# - Running cards parse progress from logs, so log growth must invalidate the
+#   card UI. Keeping only the length plus tail avoids putting full logs into
+#   the reactive signature.
+dashboard_log_progress_signature <- function(text, tail_chars = 500L) {
+  text <- paste0(as.character(text %||% ""), collapse = "\n")
+  n <- nchar(text, type = "chars", allowNA = FALSE, keepNA = FALSE)
+  tail_chars <- max(1L, as.integer(tail_chars %||% 500L))
+  start <- max(1L, n - tail_chars + 1L)
+  tail_text <- if (n == 0L) "" else substr(text, start, n)
+  paste(n, tail_text, sep = ":")
+}
+
+# Build an event-style signature for running-card structure/content updates.
+# Purpose:
+# - Trigger running-card UI updates when progress/message changes.
+# - Include a compact stdout/stderr signature because visible progress can be
+#   parsed from task logs even when task$progress is not updated.
 # Args:
 # - tab: Snapshot table from `extract_dashboard_snapshot()`.
 # Returns:
@@ -225,8 +271,8 @@ dashboard_running_signature <- function(tab) {
     id = as.character(running$id),
     progress = as.character(running$progress),
     message = as.character(running$message),
-    stdout_nchar = nchar(as.character(running$stdout %||% ""), type = "bytes", allowNA = FALSE, keepNA = FALSE),
-    stderr_nchar = nchar(as.character(running$stderr %||% ""), type = "bytes", allowNA = FALSE, keepNA = FALSE),
+    stdout = vapply(running$stdout, dashboard_log_progress_signature, character(1)),
+    stderr = vapply(running$stderr, dashboard_log_progress_signature, character(1)),
     stringsAsFactors = FALSE
   )
   key <- key[order(key$id), , drop = FALSE]
@@ -236,6 +282,36 @@ dashboard_running_signature <- function(tab) {
     paste(apply(key, 1, function(row) paste(row, collapse = "|")), collapse = ";"),
     sep = ":"
   )
+}
+
+# Build an event-style signature for one running task's log text updates.
+# Purpose:
+# - Track only stdout/stderr growth for the currently expanded running card.
+# - Let details logs update in place without re-rendering the full card list.
+# Args:
+# - tab: Snapshot table from `extract_dashboard_snapshot()`.
+# - task_id: Character task id currently expanded by the user.
+# Returns:
+# - Character scalar used by `reactivePoll(checkFunc=...)`.
+dashboard_running_log_signature <- function(tab, task_id = NULL) {
+  task_id <- as.character(task_id %||% "")
+  if (!nzchar(task_id)) {
+    return("running-log:none")
+  }
+
+  running <- tab[tab$status == "running", , drop = FALSE]
+  if (nrow(running) == 0) {
+    return(paste("running-log", task_id, "inactive", sep = ":"))
+  }
+
+  row <- running[running$id == task_id, , drop = FALSE]
+  if (nrow(row) == 0) {
+    return(paste("running-log", task_id, "inactive", sep = ":"))
+  }
+
+  stdout_nchar <- nchar(as.character(row$stdout[[1]] %||% ""), type = "bytes", allowNA = FALSE, keepNA = FALSE)
+  stderr_nchar <- nchar(as.character(row$stderr[[1]] %||% ""), type = "bytes", allowNA = FALSE, keepNA = FALSE)
+  paste("running-log", task_id, stdout_nchar, stderr_nchar, sep = ":")
 }
 
 # Add derived display columns (elapsed/wait/time labels) for dashboard UI.

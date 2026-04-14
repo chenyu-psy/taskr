@@ -217,3 +217,35 @@ test_that("Task kill stops a running child process before it writes a result", {
 
   close_task_process(task)
 })
+
+test_that("Task kill stops child work from continuing after cancel", {
+  skip_if_not_installed("callr")
+
+  marker_path <- tempfile(fileext = ".txt")
+  result_path <- tempfile(fileext = ".rds")
+  task <- taskr:::start_task_process(
+    id = "task_106",
+    expr = bquote({
+      for (i in seq_len(40)) {
+        cat(i, "\n", file = .(marker_path), append = TRUE)
+        Sys.sleep(0.1)
+      }
+      "completed"
+    }),
+    result_path = result_path
+  )
+
+  Sys.sleep(0.35)
+  task$kill()
+  lines_after_kill <- if (file.exists(marker_path)) readLines(marker_path, warn = FALSE) else character()
+  Sys.sleep(0.8)
+  lines_later <- if (file.exists(marker_path)) readLines(marker_path, warn = FALSE) else character()
+
+  expect_false(task$is_alive())
+  expect_equal(task$status(), "cancelled")
+  expect_equal(length(lines_later), length(lines_after_kill))
+  expect_lt(length(lines_later), 40)
+  expect_false(file.exists(result_path))
+
+  close_task_process(task)
+})

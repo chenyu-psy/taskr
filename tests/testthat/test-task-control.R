@@ -82,6 +82,105 @@ test_that("cancel_task kills a running task", {
   expect_identical(pkg_env$scheduler$finished$task_010$status, "cancelled")
 })
 
+test_that("cancel_task kills active task when scheduler state is missing", {
+  cancel_task <- getFromNamespace("cancel_task", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  register_active_task <- getFromNamespace("register_active_task", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  task_obj <- taskr:::Task$new(
+    id = "task_active_001",
+    process = make_killable_running_task(),
+    status = "running"
+  )
+  register_active_task(task_obj)
+  pkg_env$scheduler <- NULL
+
+  cancel_task("task_active_001")
+
+  expect_identical(task_obj$status(), "cancelled")
+  expect_false(exists("task_active_001", envir = pkg_env$active_tasks, inherits = FALSE))
+})
+
+test_that("cancel_task kills active task when finished record is stale", {
+  cancel_task <- getFromNamespace("cancel_task", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
+  register_active_task <- getFromNamespace("register_active_task", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  task_obj <- taskr:::Task$new(
+    id = "task_active_002",
+    process = make_killable_running_task(),
+    status = "running"
+  )
+  register_active_task(task_obj)
+
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(
+    task_active_002 = make_control_item("task_active_002", "stale_done", "completed")
+  )
+
+  expect_warning(cancel_task("task_active_002"), NA)
+
+  expect_identical(task_obj$status(), "cancelled")
+  expect_identical(pkg_env$scheduler$finished$task_active_002$status, "cancelled")
+  expect_false(exists("task_active_002", envir = pkg_env$active_tasks, inherits = FALSE))
+})
+
+test_that("control_cancel_task cancels queued task through main console state", {
+  control_cancel_task <- getFromNamespace("control_cancel_task", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  pending_item <- make_control_item("task_002", "queued_control", "queued")
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$queue <- list(pending_item)
+
+  out <- control_cancel_task("task_002")
+
+  expect_true(out$ok)
+  expect_identical(out$status, "cancelled")
+  expect_length(pkg_env$scheduler$queue, 0)
+  expect_identical(pkg_env$scheduler$finished$task_002$status, "cancelled")
+})
+
+test_that("control_clear_all_tasks removes queued tasks and kills active tasks", {
+  control_clear_all_tasks <- getFromNamespace("control_clear_all_tasks", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  task_obj <- make_killable_running_task()
+  running_item <- make_control_item("task_003", "running_control", "running", task = task_obj)
+  queued_item <- make_control_item("task_004", "queued_control", "queued")
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$running <- list(task_003 = running_item)
+  pkg_env$scheduler$queue <- list(queued_item)
+
+  out <- control_clear_all_tasks()
+
+  expect_true(out$ok)
+  expect_true(task_obj$state$cancelled)
+  expect_identical(out$cancelled, "task_003")
+  expect_identical(out$removed_queued, "task_004")
+  expect_length(pkg_env$scheduler$running, 0)
+  expect_length(pkg_env$scheduler$queue, 0)
+})
+
 test_that("cancel_task warns when task is already terminal", {
   cancel_task <- getFromNamespace("cancel_task", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")

@@ -104,9 +104,13 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
   }
 
   existing <- pkg_env$dashboard_process %||% NULL
+  control_url <- ensure_control_server()
+  control_token <- control_server_token()
+  cancel_dir <- dashboard_cancel_dir()
   if (dashboard_process_is_alive(existing)) {
-      url <- pkg_env$dashboard_url %||% ""
-      if (nzchar(url)) {
+    url <- pkg_env$dashboard_url %||% ""
+    old_control_url <- pkg_env$dashboard_control_url %||% ""
+    if (nzchar(url) && identical(old_control_url, control_url)) {
       if (isTRUE(announce)) {
         cat(sprintf("\nDashboard available at: %s\n", url))
       }
@@ -115,14 +119,13 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
       }
       return(invisible(url))
     }
+    stop_dashboard_background()
   }
 
   snapshot_path <- dashboard_snapshot_path()
-  command_path <- dashboard_command_path()
   if (!file.exists(snapshot_path)) {
     write_dashboard_snapshot()
   }
-  ensure_dashboard_command_file(command_path)
 
   port <- dashboard_pick_port()
   url <- sprintf("http://127.0.0.1:%d", port)
@@ -130,7 +133,7 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
   use_pkgload <- nzchar(pkg_path) && file.exists(file.path(pkg_path, "DESCRIPTION"))
 
   proc <- callr::r_bg(
-    func = function(port, pkg_path, use_pkgload, snapshot_path, command_path) {
+    func = function(port, pkg_path, use_pkgload, snapshot_path, control_url, control_token, cancel_dir) {
       options(shiny.launch.browser = FALSE)
 
       if (isTRUE(use_pkgload) &&
@@ -150,7 +153,13 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
 
       app_factory <- getFromNamespace("queue_dashboard_app", "taskr")
       shiny::runApp(
-        app_factory(data_mode = "snapshot", snapshot_path = snapshot_path, command_path = command_path),
+        app_factory(
+          data_mode = "snapshot",
+          snapshot_path = snapshot_path,
+          control_url = control_url,
+          control_token = control_token,
+          cancel_dir = cancel_dir
+        ),
         host = "127.0.0.1",
         port = as.integer(port),
         launch.browser = FALSE,
@@ -162,7 +171,9 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
       pkg_path = pkg_path,
       use_pkgload = use_pkgload,
       snapshot_path = snapshot_path,
-      command_path = command_path
+      control_url = control_url,
+      control_token = control_token,
+      cancel_dir = cancel_dir
     ),
     stdout = "|",
     stderr = "|",
@@ -172,6 +183,7 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
   pkg_env$dashboard_process <- proc
   pkg_env$dashboard_url <- url
   pkg_env$dashboard_port <- port
+  pkg_env$dashboard_control_url <- control_url
 
   ready <- dashboard_port_ready(port = port, timeout_sec = 6)
   if (!isTRUE(ready)) {

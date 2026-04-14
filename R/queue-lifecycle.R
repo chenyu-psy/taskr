@@ -25,6 +25,7 @@ clear_task_tempdir <- function() {
 
   unlink(pkg_env$tempdir, recursive = TRUE, force = TRUE)
   dir.create(pkg_env$tempdir, showWarnings = FALSE, recursive = TRUE)
+  init_dashboard_ipc(reset_session = TRUE)
   invisible(NULL)
 }
 
@@ -72,6 +73,7 @@ init_queue <- function(max_slots = 1L) {
     shutdown_queue()
   }
 
+  init_dashboard_ipc(reset_session = TRUE)
   pkg_env$scheduler <- new_scheduler_state(max_slots = max_slots)
   write_dashboard_snapshot()
   invisible(NULL)
@@ -113,7 +115,8 @@ shutdown_queue <- function() {
   }
 
   stop_dashboard_background()
-  write_dashboard_snapshot()
+  stop_control_server()
   clear_task_tempdir()
+  write_dashboard_snapshot()
   invisible(NULL)
 }

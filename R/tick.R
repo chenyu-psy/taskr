@@ -42,6 +42,102 @@ sort_queue_by_priority <- function(queue) {
   queue[order_idx]
 }
 
+# Convert one queued/running item into a cancelled finished record.
+# Args:
+# - item: Scheduler item from queue or running buckets.
+# - now: Timestamp used as the cancellation end time.
+# Returns:
+# - The same task item with terminal cancelled fields set.
+cancel_item_record <- function(item, now) {
+  item$status <- "cancelled"
+  item$end_time <- now
+  item$error <- item$error %||% "Task canceled by user."
+  item
+}
+
+# Apply dashboard cancel markers before launching or recycling tasks.
+# Args:
+# - state: Scheduler state with queue/running/finished buckets.
+# - now: Timestamp used for cancellation records.
+# Returns:
+# - Updated scheduler state.
+# Side effects:
+# - Kills running task objects when possible and removes consumed marker files.
+apply_dashboard_cancel_requests <- function(state, now) {
+  if (is.null(state)) {
+    return(state)
+  }
+
+  if (length(state$queue) > 0) {
+    remaining_queue <- list()
+    for (item in state$queue) {
+      task_id <- as.character(item$id %||% "")
+      if (nzchar(task_id) && dashboard_cancel_requested(task_id)) {
+        state$finished[[task_id]] <- cancel_item_record(item, now = now)
+        clear_dashboard_cancel_marker(task_id)
+      } else {
+        remaining_queue[[length(remaining_queue) + 1L]] <- item
+      }
+    }
+    state$queue <- remaining_queue
+  }
+
+  if (length(state$running) > 0) {
+    running_ids <- names(state$running)
+    for (task_id in running_ids) {
+      if (!dashboard_cancel_requested(task_id)) {
+        next
+      }
+
+      item <- state$running[[task_id]]
+      task <- item$task %||% NULL
+      kill_error <- tryCatch({
+        if (!is.null(task)) {
+          task$kill()
+        }
+        NULL
+      }, error = function(e) conditionMessage(e))
+
+      if (!is.null(kill_error)) {
+        item$error <- kill_error
+        state$running[[task_id]] <- item
+        next
+      }
+
+      state$running[[task_id]] <- NULL
+      state$finished[[task_id]] <- cancel_item_record(item, now = now)
+      clear_dashboard_cancel_marker(task_id)
+    }
+  }
+
+  state
+}
+
+# Apply a dashboard request to remove all finished task records.
+# Args:
+# - state: Scheduler state with queue/running/finished buckets.
+# Returns:
+# - Updated scheduler state.
+# Side effects:
+# - Deletes result files for finished records and removes the cleanup marker.
+apply_dashboard_clean_finished_request <- function(state) {
+  if (is.null(state) || !dashboard_clean_finished_requested()) {
+    return(state)
+  }
+
+  finished_items <- state$finished %||% list()
+  if (length(finished_items) > 0) {
+    for (item in finished_items) {
+      delete_task_result_file(item)
+      state <- remove_label_index_entry(state, item)
+    }
+  }
+
+  state$finished <- list()
+  clear_dashboard_clean_finished_marker()
+  state
+}
+
 recycle_running_tasks <- function(state, now) {
   if (length(state$running) == 0) {
     return(state)
@@ -146,7 +242,10 @@ launch_from_queue <- function(state, now, start_task_fn = NULL) {
 }
 
 update_queue <- function(state, start_task_fn = NULL, now = Sys.time()) {
+  state <- apply_dashboard_cancel_requests(state, now = now)
   state <- recycle_running_tasks(state, now = now)
+  state <- apply_dashboard_cancel_requests(state, now = now)
+  state <- apply_dashboard_clean_finished_request(state)
   state <- launch_from_queue(state, now = now, start_task_fn = start_task_fn)
   state$scheduler_should_stop <- length(state$running) == 0 && length(state$queue) == 0
   state
