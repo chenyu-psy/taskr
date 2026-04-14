@@ -634,7 +634,8 @@ queue_dashboard_app <- function(
     data_mode = c("live", "snapshot"),
     snapshot_path = NULL,
     control_url = NULL,
-    control_token = NULL) {
+    control_token = NULL,
+    cancel_dir = NULL) {
   if (!requireNamespace("shiny", quietly = TRUE)) {
     stop("`launch_dashboard()` requires the `shiny` package. Install it with install.packages('shiny').")
   }
@@ -652,7 +653,13 @@ queue_dashboard_app <- function(
     length(control_token) == 1 &&
     !is.na(control_token) &&
     nzchar(control_token)
-  can_control <- !isTRUE(read_only) || isTRUE(control_via_server)
+  control_via_files <- isTRUE(read_only) &&
+    !is.null(cancel_dir) &&
+    is.character(cancel_dir) &&
+    length(cancel_dir) == 1 &&
+    !is.na(cancel_dir) &&
+    nzchar(cancel_dir)
+  can_control <- !isTRUE(read_only) || isTRUE(control_via_files) || isTRUE(control_via_server)
   if (!isTRUE(read_only)) {
     ensure_queue_initialized()
   }
@@ -675,13 +682,15 @@ queue_dashboard_app <- function(
           return(list(
             session_id = NA_character_,
             tasks = empty_dashboard_table(),
-            max_slots = 1L
+            max_slots = 1L,
+            cancel_dir = cancel_dir %||% NA_character_
           ))
         }
         list(
           session_id = out$session_id %||% NA_character_,
           tasks = out$tasks %||% empty_dashboard_table(),
-          max_slots = as.integer(out$max_slots %||% 1L)
+          max_slots = as.integer(out$max_slots %||% 1L),
+          cancel_dir = out$cancel_dir %||% cancel_dir %||% NA_character_
         )
       }
 
@@ -714,6 +723,47 @@ queue_dashboard_app <- function(
         shiny::removeModal()
         session$sendCustomMessage("taskr_force_close_modal", list())
         invisible(NULL)
+      }
+
+      # Kill a running task process directly from the dashboard process.
+      # Args:
+      # - pid: Operating-system PID from the dashboard snapshot.
+      # Returns:
+      # - Invisibly returns TRUE when a plausible PID was targeted, otherwise FALSE.
+      # Side effects:
+      # - Sends TERM first, then KILL. Cancel is resource control, so releasing
+      #   the process is more important than waiting for a graceful log flush.
+      kill_dashboard_pid <- function(pid) {
+        pid <- suppressWarnings(as.integer(pid))
+        if (length(pid) != 1 || is.na(pid) || pid < 1L) {
+          return(invisible(FALSE))
+        }
+
+        try(tools::pskill(pid, signal = tools::SIGTERM), silent = TRUE)
+        Sys.sleep(0.1)
+        try(tools::pskill(pid, signal = tools::SIGKILL), silent = TRUE)
+        invisible(TRUE)
+      }
+
+      # Request cancellation without waiting for the main R console.
+      # Args:
+      # - task_id: Task id to cancel.
+      # - row: Optional one-row dashboard snapshot, used to find the PID.
+      # Returns:
+      # - TRUE when the file-based control path is available, otherwise FALSE.
+      # Side effects:
+      # - Writes a cancel marker for the scheduler and kills the process PID
+      #   immediately when the snapshot contains one.
+      request_local_cancel <- function(task_id, row = NULL) {
+        if (!isTRUE(control_via_files)) {
+          return(FALSE)
+        }
+
+        write_dashboard_cancel_marker(task_id = task_id, cancel_dir = cancel_dir)
+        if (!is.null(row) && nrow(row) > 0 && "pid" %in% names(row)) {
+          kill_dashboard_pid(row$pid[[1]])
+        }
+        TRUE
       }
 
       cached_display_progress <- function(task_id) {
@@ -1090,7 +1140,13 @@ queue_dashboard_app <- function(
             return(invisible(NULL))
           }
 
-          if (isTRUE(control_via_server)) {
+          if (isTRUE(control_via_files)) {
+            request_local_cancel(task_id = task_id, row = row)
+            request_id <- new_dashboard_session_id()
+            remember_pending_cancel(task_id = task_id, request_id = request_id)
+            shiny::showNotification("Queued task cancellation requested.", type = "message")
+            refresh_nonce(refresh_nonce() + 1L)
+          } else if (isTRUE(control_via_server)) {
             request_id <- send_control_request("cancel", task_id = task_id)
             if (!is.null(request_id)) {
               remember_pending_cancel(task_id = task_id, request_id = request_id)
@@ -1142,7 +1198,15 @@ queue_dashboard_app <- function(
           return(invisible(NULL))
         }
 
-        if (isTRUE(control_via_server)) {
+        if (isTRUE(control_via_files)) {
+          current <- state_tasks()
+          row <- current[current$id == task_id, , drop = FALSE]
+          request_local_cancel(task_id = task_id, row = row)
+          request_id <- new_dashboard_session_id()
+          remember_pending_cancel(task_id = task_id, request_id = request_id)
+          shiny::showNotification("Running task cancellation requested.", type = "message")
+          refresh_nonce(refresh_nonce() + 1L)
+        } else if (isTRUE(control_via_server)) {
           request_id <- send_control_request("cancel", task_id = task_id)
           if (!is.null(request_id)) {
             remember_pending_cancel(task_id = task_id, request_id = request_id)
@@ -1205,7 +1269,19 @@ queue_dashboard_app <- function(
           return(invisible(NULL))
         }
 
-        if (isTRUE(control_via_server)) {
+        if (isTRUE(control_via_files)) {
+          all_tab <- state_tasks()
+          active <- all_tab[all_tab$status %in% c("running", "queued"), , drop = FALSE]
+          if (nrow(active) > 0) {
+            for (i in seq_len(nrow(active))) {
+              task_id <- as.character(active$id[[i]])
+              request_local_cancel(task_id = task_id, row = active[i, , drop = FALSE])
+            }
+            pending_cancel_ids(unique(c(pending_cancel_ids(), active$id)))
+          }
+          refresh_nonce(refresh_nonce() + 1L)
+          shiny::showNotification("Active task cancellation requested.", type = "message")
+        } else if (isTRUE(control_via_server)) {
           all_tab <- state_tasks()
           active_ids <- all_tab$id[all_tab$status %in% c("running", "queued")]
           if (length(active_ids) > 0) {

@@ -21,6 +21,7 @@ empty_dashboard_table <- function() {
     submit_time = as.POSIXct(character()),
     start_time = as.POSIXct(character()),
     end_time = as.POSIXct(character()),
+    pid = integer(),
     stdout = character(),
     stderr = character(),
     stringsAsFactors = FALSE
@@ -140,6 +141,27 @@ dashboard_item_slots <- function(item) {
   slots
 }
 
+# Read the operating-system PID for a running task process.
+# Args:
+# - item: Task item list from scheduler state.
+# Returns:
+# - Integer PID when available, otherwise NA_integer_.
+# Assumptions:
+# - Only running callr-backed tasks expose a process with get_pid().
+dashboard_item_pid <- function(item) {
+  task <- item$task %||% NULL
+  process <- if (is.null(task)) NULL else task$process %||% NULL
+  if (is.null(process) || is.null(process$get_pid) || !is.function(process$get_pid)) {
+    return(NA_integer_)
+  }
+
+  pid <- suppressWarnings(as.integer(tryCatch(process$get_pid(), error = function(e) NA_integer_)))
+  if (length(pid) != 1 || is.na(pid) || pid < 1L) {
+    return(NA_integer_)
+  }
+  pid
+}
+
 # Convert one scheduler task item to a single dashboard table row.
 # Args:
 # - item: Task item list from scheduler state.
@@ -158,6 +180,7 @@ dashboard_item_to_row <- function(item) {
     submit_time = normalize_dashboard_posixct(item$submit_time %||% NA),
     start_time = normalize_dashboard_posixct(item$start_time %||% NA),
     end_time = normalize_dashboard_posixct(item$end_time %||% NA),
+    pid = dashboard_item_pid(item),
     stdout = as.character(item$stdout_buffer %||% ""),
     stderr = as.character(item$stderr_buffer %||% ""),
     stringsAsFactors = FALSE

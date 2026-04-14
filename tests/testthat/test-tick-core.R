@@ -52,6 +52,61 @@ test_that("update_queue starts tasks by priority then FIFO", {
   expect_identical(next_state$queue[[1]]$id, "task_001")
 })
 
+test_that("update_queue skips queued tasks with dashboard cancel markers", {
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  old_cancel_dir <- pkg_env$dashboard_cancel_dir
+  on.exit({
+    pkg_env$dashboard_cancel_dir <- old_cancel_dir
+  }, add = TRUE)
+
+  pkg_env$dashboard_cancel_dir <- tempfile("taskr-cancel-")
+  dir.create(pkg_env$dashboard_cancel_dir, recursive = TRUE)
+
+  q1 <- list(id = "task_cancel", priority = 10L, submit_time = 1, resources = list(slots = 1L))
+  q2 <- list(id = "task_run", priority = 1L, submit_time = 2, resources = list(slots = 1L))
+  taskr:::write_dashboard_cancel_marker("task_cancel")
+
+  state <- make_tick_state(capacity_slots = 1L, queue = list(q1, q2))
+  next_state <- taskr:::update_queue(
+    state = state,
+    start_task_fn = function(item) make_scripted_task(id = item$id, status_seq = "running")
+  )
+
+  expect_true("task_cancel" %in% names(next_state$finished))
+  expect_equal(next_state$finished$task_cancel$status, "cancelled")
+  expect_true("task_run" %in% names(next_state$running))
+  expect_false(taskr:::dashboard_cancel_requested("task_cancel"))
+})
+
+test_that("update_queue cancels running tasks with dashboard cancel markers", {
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  old_cancel_dir <- pkg_env$dashboard_cancel_dir
+  on.exit({
+    pkg_env$dashboard_cancel_dir <- old_cancel_dir
+  }, add = TRUE)
+
+  pkg_env$dashboard_cancel_dir <- tempfile("taskr-cancel-")
+  dir.create(pkg_env$dashboard_cancel_dir, recursive = TRUE)
+
+  task <- make_scripted_task(id = "task_running", status_seq = "running")
+  running_item <- list(
+    id = "task_running",
+    priority = 0L,
+    resources = list(slots = 1L),
+    status = "running",
+    task = task
+  )
+  taskr:::write_dashboard_cancel_marker("task_running")
+
+  state <- make_tick_state(capacity_slots = 1L, running = list(task_running = running_item))
+  next_state <- taskr:::update_queue(state)
+
+  expect_length(next_state$running, 0)
+  expect_true("task_running" %in% names(next_state$finished))
+  expect_equal(next_state$finished$task_running$status, "cancelled")
+  expect_false(taskr:::dashboard_cancel_requested("task_running"))
+})
+
 test_that("update_queue recycles terminal running tasks into finished", {
   running_item <- list(
     id = "task_010",

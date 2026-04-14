@@ -106,6 +106,7 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
   existing <- pkg_env$dashboard_process %||% NULL
   control_url <- ensure_control_server()
   control_token <- control_server_token()
+  cancel_dir <- dashboard_cancel_dir()
   if (dashboard_process_is_alive(existing)) {
     url <- pkg_env$dashboard_url %||% ""
     old_control_url <- pkg_env$dashboard_control_url %||% ""
@@ -132,7 +133,7 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
   use_pkgload <- nzchar(pkg_path) && file.exists(file.path(pkg_path, "DESCRIPTION"))
 
   proc <- callr::r_bg(
-    func = function(port, pkg_path, use_pkgload, snapshot_path, control_url, control_token) {
+    func = function(port, pkg_path, use_pkgload, snapshot_path, control_url, control_token, cancel_dir) {
       options(shiny.launch.browser = FALSE)
 
       if (isTRUE(use_pkgload) &&
@@ -156,7 +157,8 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
           data_mode = "snapshot",
           snapshot_path = snapshot_path,
           control_url = control_url,
-          control_token = control_token
+          control_token = control_token,
+          cancel_dir = cancel_dir
         ),
         host = "127.0.0.1",
         port = as.integer(port),
@@ -170,7 +172,8 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
       use_pkgload = use_pkgload,
       snapshot_path = snapshot_path,
       control_url = control_url,
-      control_token = control_token
+      control_token = control_token,
+      cancel_dir = cancel_dir
     ),
     stdout = "|",
     stderr = "|",

@@ -23,6 +23,7 @@ write_dashboard_snapshot <- function(now = Sys.time()) {
     session_id = dashboard_session_id(),
     generated_at = format(now, "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
     max_slots = as.integer(state$capacity$slots %||% 1L),
+    cancel_dir = dashboard_cancel_dir(),
     tasks = tab
   )
 
@@ -37,6 +38,7 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
       session_id = NA_character_,
       generated_at = NA_character_,
       max_slots = 1L,
+      cancel_dir = NA_character_,
       tasks = empty_dashboard_table()
     ))
   }
@@ -51,6 +53,7 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
       session_id = NA_character_,
       generated_at = NA_character_,
       max_slots = 1L,
+      cancel_dir = NA_character_,
       tasks = empty_dashboard_table()
     ))
   }
@@ -115,6 +118,7 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
     session_id = payload$session_id %||% NA_character_,
     generated_at = payload$generated_at %||% NA_character_,
     max_slots = as.integer(payload$max_slots %||% 1L),
+    cancel_dir = payload$cancel_dir %||% NA_character_,
     tasks = tab
   )
 }
