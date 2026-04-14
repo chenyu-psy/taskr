@@ -358,6 +358,13 @@ dashboard_scroll_js <- function() {
       "    var nodes = root.querySelectorAll ? root.querySelectorAll('[data-scroll-key]') : [];",
       "    Array.prototype.forEach.call(nodes, function (el) { save(el); });",
       "  }",
+      "  function saveAncestors(el) {",
+      "    var node = el;",
+      "    while (node && node !== document) {",
+      "      if (node.getAttribute && node.getAttribute('data-scroll-key')) save(node);",
+      "      node = node.parentNode;",
+      "    }",
+      "  }",
       "  function restore(scope) {",
       "    var root = scope || document;",
       "    var nodes = root.querySelectorAll ? root.querySelectorAll('[data-scroll-key]') : [];",
@@ -376,6 +383,7 @@ dashboard_scroll_js <- function() {
       "  }, true);",
       "  document.addEventListener('shiny:outputinvalidated', function (evt) {",
       "    saveAll(evt && evt.target ? evt.target : document);",
+      "    saveAncestors(evt && evt.target ? evt.target : null);",
       "  });",
       "  document.addEventListener('shiny:value', function (evt) {",
       "    setTimeout(function () { restore(evt && evt.target ? evt.target : document); }, 0);",
@@ -676,6 +684,7 @@ queue_dashboard_app <- function(
       pending_cancel_ids <- shiny::reactiveVal(character())
       pending_cancel_requests <- shiny::reactiveVal(setNames(character(), character()))
       action_cooldown <- shiny::reactiveVal(list())
+      last_focus_target <- shiny::reactiveVal("")
       read_snapshot_state <- function() {
         out <- tryCatch(read_dashboard_snapshot(path = snapshot_path), error = function(e) NULL)
         if (is.null(out)) {
@@ -1406,6 +1415,7 @@ queue_dashboard_app <- function(
       shiny::observe({
         current_id <- selected_id()
         if (is.null(current_id)) {
+          last_focus_target("")
           return(invisible(NULL))
         }
 
@@ -1427,6 +1437,12 @@ queue_dashboard_app <- function(
         if (is.null(container_key)) {
           return(invisible(NULL))
         }
+
+        focus_target <- paste(current_id, container_key, sep = "::")
+        if (identical(last_focus_target(), focus_target)) {
+          return(invisible(NULL))
+        }
+        last_focus_target(focus_target)
 
         session$onFlushed(function() {
           session$sendCustomMessage(

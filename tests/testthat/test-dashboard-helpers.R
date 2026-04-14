@@ -605,4 +605,5 @@ test_that("dashboard custom message handlers use Shiny-compatible signatures", {
   expect_true(grepl("addCustomMessageHandler('taskr_focus_task', function (msg)", script, fixed = TRUE))
   expect_true(grepl("addCustomMessageHandler('taskr_force_close_modal', function (msg)", script, fixed = TRUE))
   expect_true(grepl("addCustomMessageHandler('taskr_control_request', function (msg)", script, fixed = TRUE))
+  expect_true(grepl("function saveAncestors(el)", script, fixed = TRUE))
 })
