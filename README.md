@@ -151,7 +151,7 @@ filters help focus on failures or cancellations, and cleanup actions remove
 finished records once they are no longer needed.
 
 <p align="center">
-  <img src="inst/images/dashboard-panels/finished-panel.jpg" alt="Finished panel" width="50%">
+  <img src="inst/images/dashboard-panels/pending-panel.jpg" alt="Pending panel" width="50%">
 </p>
 
 # Status
