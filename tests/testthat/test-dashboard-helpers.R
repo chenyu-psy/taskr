@@ -184,7 +184,7 @@ test_that("dashboard_state_signature ignores running progress/message-only chang
   )
 })
 
-test_that("dashboard_running_signature reacts to progress/message but ignores log-only changes", {
+test_that("dashboard_running_signature reacts to progress, message, and log changes", {
   dashboard_running_signature <- getFromNamespace("dashboard_running_signature", "taskr")
 
   now <- as.POSIXct("2026-04-10 12:00:00", tz = "UTC")
@@ -216,10 +216,38 @@ test_that("dashboard_running_signature reacts to progress/message but ignores lo
   tab_c$stdout <- "log_2_more"
   tab_c$stderr <- "warn"
 
-  expect_identical(
+  expect_false(identical(
     dashboard_running_signature(tab_a),
     dashboard_running_signature(tab_c)
+  ))
+})
+
+test_that("dashboard_running_signature reacts when log progress changes", {
+  dashboard_running_signature <- getFromNamespace("dashboard_running_signature", "taskr")
+
+  now <- as.POSIXct("2026-04-10 12:00:00", tz = "UTC")
+  tab_a <- data.frame(
+    id = "task_001",
+    label = "demo",
+    status = "running",
+    priority = 1L,
+    progress = NA_real_,
+    message = "",
+    error = "",
+    submit_time = now - 20,
+    start_time = now - 10,
+    end_time = as.POSIXct(NA),
+    stdout = "Step 1 / 100",
+    stderr = "",
+    stringsAsFactors = FALSE
   )
+  tab_b <- tab_a
+  tab_b$stdout <- "Step 50 / 100"
+
+  expect_false(identical(
+    dashboard_running_signature(tab_a),
+    dashboard_running_signature(tab_b)
+  ))
 })
 
 test_that("dashboard_running_log_signature reacts to running log changes", {

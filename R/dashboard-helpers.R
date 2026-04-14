@@ -233,11 +233,30 @@ dashboard_state_signature <- function(tab) {
   )
 }
 
+# Build a compact signature for log text that can affect visible progress.
+# Args:
+# - text: Log text from stdout or stderr.
+# - tail_chars: Number of trailing characters to include.
+# Returns:
+# - Character scalar containing text length and tail text.
+# Notes:
+# - Running cards parse progress from logs, so log growth must invalidate the
+#   card UI. Keeping only the length plus tail avoids putting full logs into
+#   the reactive signature.
+dashboard_log_progress_signature <- function(text, tail_chars = 500L) {
+  text <- paste0(as.character(text %||% ""), collapse = "\n")
+  n <- nchar(text, type = "chars", allowNA = FALSE, keepNA = FALSE)
+  tail_chars <- max(1L, as.integer(tail_chars %||% 500L))
+  start <- max(1L, n - tail_chars + 1L)
+  tail_text <- if (n == 0L) "" else substr(text, start, n)
+  paste(n, tail_text, sep = ":")
+}
+
 # Build an event-style signature for running-card structure/content updates.
 # Purpose:
 # - Trigger running-card UI updates when progress/message changes.
-# - Intentionally ignore stdout/stderr text changes so log streaming does not
-#   force a full running-card re-render.
+# - Include a compact stdout/stderr signature because visible progress can be
+#   parsed from task logs even when task$progress is not updated.
 # Args:
 # - tab: Snapshot table from `extract_dashboard_snapshot()`.
 # Returns:
@@ -252,6 +271,8 @@ dashboard_running_signature <- function(tab) {
     id = as.character(running$id),
     progress = as.character(running$progress),
     message = as.character(running$message),
+    stdout = vapply(running$stdout, dashboard_log_progress_signature, character(1)),
+    stderr = vapply(running$stderr, dashboard_log_progress_signature, character(1)),
     stringsAsFactors = FALSE
   )
   key <- key[order(key$id), , drop = FALSE]
