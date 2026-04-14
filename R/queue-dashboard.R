@@ -772,6 +772,23 @@ queue_dashboard_app <- function(
         TRUE
       }
 
+      # Request finished-record cleanup through the same marker directory used
+      # for robust dashboard cancellation.
+      # Args:
+      # - None.
+      # Returns:
+      # - TRUE when the file-based control path is available, otherwise FALSE.
+      # Side effects:
+      # - Writes a cleanup marker consumed by the main scheduler tick.
+      request_local_clean_finished <- function() {
+        if (!isTRUE(control_via_files)) {
+          return(FALSE)
+        }
+
+        write_dashboard_clean_finished_marker(cancel_dir = cancel_dir)
+        TRUE
+      }
+
       cached_display_progress <- function(task_id) {
         if (!exists(task_id, envir = display_progress_cache, inherits = FALSE)) {
           return(NA_real_)
@@ -1242,6 +1259,13 @@ queue_dashboard_app <- function(
           return(invisible(NULL))
         }
 
+        if (isTRUE(control_via_files)) {
+          request_local_clean_finished()
+          refresh_nonce(refresh_nonce() + 1L)
+          shiny::showNotification("Finished task cleanup requested.", type = "message")
+          return(invisible(NULL))
+        }
+
         tryCatch(
           {
             clean_tasks()
@@ -1291,8 +1315,9 @@ queue_dashboard_app <- function(
             }
             pending_cancel_ids(unique(c(pending_cancel_ids(), active$id)))
           }
+          request_local_clean_finished()
           refresh_nonce(refresh_nonce() + 1L)
-          shiny::showNotification("Active task cancellation requested.", type = "message")
+          shiny::showNotification("All task cleanup requested.", type = "message")
         } else if (isTRUE(control_via_server)) {
           all_tab <- state_tasks()
           active_ids <- all_tab$id[all_tab$status %in% c("running", "queued")]

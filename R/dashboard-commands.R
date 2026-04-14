@@ -119,3 +119,53 @@ clear_dashboard_cancel_marker <- function(task_id, cancel_dir = dashboard_cancel
   }
   invisible(NULL)
 }
+
+# Build the marker path for a dashboard finished-record cleanup request.
+# Args:
+# - cancel_dir: Dashboard control marker directory shared by both R processes.
+# Returns:
+# - Character path for the cleanup marker file.
+dashboard_clean_finished_marker_path <- function(cancel_dir = dashboard_cancel_dir()) {
+  file.path(cancel_dir, "_clean_finished.json")
+}
+
+# Record that the dashboard requested finished records to be cleaned.
+# Args:
+# - cancel_dir: Dashboard control marker directory shared by both R processes.
+# Returns:
+# - Invisibly returns the marker path.
+# Side effects:
+# - Writes one small JSON marker file atomically.
+write_dashboard_clean_finished_marker <- function(cancel_dir = dashboard_cancel_dir()) {
+  path <- dashboard_clean_finished_marker_path(cancel_dir = cancel_dir)
+  payload <- list(
+    action = "clean_finished",
+    requested_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+  )
+  write_json_atomic(payload = payload, path = path)
+  invisible(path)
+}
+
+# Check whether the dashboard requested finished records to be cleaned.
+# Args:
+# - cancel_dir: Dashboard control marker directory shared by both R processes.
+# Returns:
+# - TRUE when the cleanup marker exists, otherwise FALSE.
+dashboard_clean_finished_requested <- function(cancel_dir = dashboard_cancel_dir()) {
+  file.exists(dashboard_clean_finished_marker_path(cancel_dir = cancel_dir))
+}
+
+# Remove the dashboard cleanup marker after the scheduler consumes it.
+# Args:
+# - cancel_dir: Dashboard control marker directory shared by both R processes.
+# Returns:
+# - Invisibly returns NULL.
+# Side effects:
+# - Deletes the cleanup marker if it exists.
+clear_dashboard_clean_finished_marker <- function(cancel_dir = dashboard_cancel_dir()) {
+  path <- dashboard_clean_finished_marker_path(cancel_dir = cancel_dir)
+  if (file.exists(path)) {
+    unlink(path, force = TRUE)
+  }
+  invisible(NULL)
+}

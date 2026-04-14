@@ -107,6 +107,83 @@ test_that("update_queue cancels running tasks with dashboard cancel markers", {
   expect_false(taskr:::dashboard_cancel_requested("task_running"))
 })
 
+test_that("update_queue cleans finished tasks with dashboard cleanup marker", {
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  old_cancel_dir <- pkg_env$dashboard_cancel_dir
+  on.exit({
+    pkg_env$dashboard_cancel_dir <- old_cancel_dir
+  }, add = TRUE)
+
+  pkg_env$dashboard_cancel_dir <- tempfile("taskr-cancel-")
+  dir.create(pkg_env$dashboard_cancel_dir, recursive = TRUE)
+
+  finished_item <- list(
+    id = "task_finished",
+    label = "finished_label",
+    status = "completed",
+    resources = list(slots = 1L),
+    result_path = NULL
+  )
+  state <- make_tick_state(capacity_slots = 1L, finished = list(task_finished = finished_item))
+  state$label_index <- list(finished_label = "task_finished")
+  taskr:::write_dashboard_clean_finished_marker()
+
+  next_state <- taskr:::update_queue(state)
+
+  expect_length(next_state$finished, 0)
+  expect_null(next_state$label_index$finished_label)
+  expect_false(taskr:::dashboard_clean_finished_requested())
+})
+
+test_that("update_queue cancels active tasks before dashboard cleanup", {
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  old_cancel_dir <- pkg_env$dashboard_cancel_dir
+  on.exit({
+    pkg_env$dashboard_cancel_dir <- old_cancel_dir
+  }, add = TRUE)
+
+  pkg_env$dashboard_cancel_dir <- tempfile("taskr-cancel-")
+  dir.create(pkg_env$dashboard_cancel_dir, recursive = TRUE)
+
+  queued_item <- list(
+    id = "task_queued",
+    label = "queued_label",
+    status = "queued",
+    priority = 0L,
+    submit_time = 1,
+    resources = list(slots = 1L),
+    result_path = NULL
+  )
+  old_finished <- list(
+    id = "task_old",
+    label = "old_label",
+    status = "completed",
+    resources = list(slots = 1L),
+    result_path = NULL
+  )
+  state <- make_tick_state(
+    capacity_slots = 1L,
+    queue = list(queued_item),
+    finished = list(task_old = old_finished)
+  )
+  state$label_index <- list(queued_label = "task_queued", old_label = "task_old")
+  taskr:::write_dashboard_cancel_marker("task_queued")
+  taskr:::write_dashboard_clean_finished_marker()
+
+  next_state <- taskr:::update_queue(
+    state = state,
+    start_task_fn = function(item) make_scripted_task(id = item$id, status_seq = "running")
+  )
+
+  expect_length(next_state$queue, 0)
+  expect_length(next_state$running, 0)
+  expect_length(next_state$finished, 0)
+  expect_null(next_state$label_index$queued_label)
+  expect_null(next_state$label_index$old_label)
+  expect_false(taskr:::dashboard_cancel_requested("task_queued"))
+  expect_false(taskr:::dashboard_clean_finished_requested())
+})
+
 test_that("update_queue recycles terminal running tasks into finished", {
   running_item <- list(
     id = "task_010",
