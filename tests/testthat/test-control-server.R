@@ -51,6 +51,7 @@ test_that("control server starts and stops cleanly", {
   start_control_server <- getFromNamespace("start_control_server", "taskr")
   stop_control_server <- getFromNamespace("stop_control_server", "taskr")
   control_server_is_running <- getFromNamespace("control_server_is_running", "taskr")
+  control_service_loop_is_running <- getFromNamespace("control_service_loop_is_running", "taskr")
   control_server_url <- getFromNamespace("control_server_url", "taskr")
 
   stop_control_server()
@@ -59,11 +60,13 @@ test_that("control server starts and stops cleanly", {
   url <- start_control_server()
 
   expect_true(control_server_is_running())
+  expect_true(control_service_loop_is_running())
   expect_match(url, "^http://127[.]0[.]0[.]1:[0-9]+$")
   expect_identical(control_server_url(), url)
 
   stop_control_server()
   expect_false(control_server_is_running())
+  expect_false(control_service_loop_is_running())
 })
 
 test_that("control server rejects invalid token", {

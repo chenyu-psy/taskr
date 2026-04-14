@@ -31,6 +31,7 @@ pkg_env <- new.env(parent = emptyenv())
   pkg_env$dashboard_url <- NULL
   pkg_env$dashboard_port <- NULL
   pkg_env$control_server <- NULL
+  pkg_env$control_service_handle <- NULL
   pkg_env$control_url <- NULL
   pkg_env$control_port <- NULL
   pkg_env$control_token <- NULL

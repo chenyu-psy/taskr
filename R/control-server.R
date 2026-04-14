@@ -37,6 +37,47 @@ control_server_token <- function() {
   token
 }
 
+control_service_loop_is_running <- function() {
+  is.function(pkg_env$control_service_handle %||% NULL)
+}
+
+schedule_control_service_loop <- function(delay = 0.05) {
+  if (!control_server_is_running()) {
+    return(invisible(FALSE))
+  }
+  if (control_service_loop_is_running()) {
+    return(invisible(FALSE))
+  }
+
+  pkg_env$control_service_handle <- later::later(
+    func = control_service_tick,
+    delay = as.numeric(delay)
+  )
+  invisible(TRUE)
+}
+
+control_service_tick <- function() {
+  pkg_env$control_service_handle <- NULL
+  if (!control_server_is_running()) {
+    return(invisible(NULL))
+  }
+
+  # A small positive timeout lets httpuv process pending localhost requests
+  # without blocking the main console or starving scheduler ticks.
+  try(httpuv::service(1), silent = TRUE)
+  schedule_control_service_loop()
+  invisible(NULL)
+}
+
+stop_control_service_loop <- function() {
+  handle <- pkg_env$control_service_handle %||% NULL
+  if (is.function(handle)) {
+    try(handle(), silent = TRUE)
+  }
+  pkg_env$control_service_handle <- NULL
+  invisible(NULL)
+}
+
 control_json_response <- function(status = 200L, payload = list()) {
   list(
     status = as.integer(status),
@@ -239,6 +280,7 @@ start_control_server <- function() {
   }
 
   if (control_server_is_running()) {
+    schedule_control_service_loop()
     return(invisible(control_server_url()))
   }
 
@@ -254,6 +296,7 @@ start_control_server <- function() {
   pkg_env$control_port <- port
   pkg_env$control_url <- sprintf("http://127.0.0.1:%d", port)
   control_server_token()
+  schedule_control_service_loop(delay = 0)
   invisible(pkg_env$control_url)
 }
 
@@ -261,10 +304,12 @@ ensure_control_server <- function() {
   if (!control_server_is_running()) {
     start_control_server()
   }
+  schedule_control_service_loop()
   invisible(control_server_url())
 }
 
 stop_control_server <- function() {
+  stop_control_service_loop()
   srv <- pkg_env$control_server %||% NULL
   if (!is.null(srv) && is.function(srv$stop)) {
     try(srv$stop(), silent = TRUE)
