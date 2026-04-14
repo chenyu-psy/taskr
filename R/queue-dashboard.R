@@ -47,9 +47,30 @@ task_expand_block_ui <- function(task, expanded = FALSE) {
   )
 }
 
+# Render one dashboard action button without a Shiny input id.
+#
+# Purpose:
+# - Avoid duplicate input-id warnings when Shiny replaces dynamic card lists.
+# - Send all card clicks through one delegated browser event.
+#
+# Args:
+# - action: Short action key, for example "select" or "cancel".
+# - task_id: Task id attached to the card.
+# - label: Button text shown to the user.
+# - class: CSS classes for Bootstrap styling.
+# Returns:
+# - A plain HTML `<button>` tag.
+dashboard_action_button_ui <- function(action, task_id, label, class) {
+  shiny::tags$button(
+    type = "button",
+    class = class,
+    `data-taskr-action` = as.character(action),
+    `data-taskr-task-id` = as.character(task_id),
+    label
+  )
+}
+
 running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE, chain_tab = NULL, progress_ratio = NULL) {
-  select_id <- button_id_for_task("select", task$id)
-  cancel_id <- button_id_for_task("cancel", task$id)
   if (is.null(progress_ratio) || length(progress_ratio) == 0 || is.na(progress_ratio)) {
     progress_ratio <- normalize_progress_fraction(task$progress, default_fraction = 0.5)
   } else {
@@ -117,9 +138,19 @@ running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE, ch
     },
     shiny::div(
       class = "task-card-actions",
-      shiny::actionButton(select_id, ifelse(expanded, "Collapse", "Details"), class = "btn btn-sm btn-outline-primary"),
+      dashboard_action_button_ui(
+        action = "select",
+        task_id = task$id,
+        label = ifelse(expanded, "Collapse", "Details"),
+        class = "btn btn-sm btn-outline-primary"
+      ),
       if (isTRUE(allow_cancel)) {
-        shiny::actionButton(cancel_id, "Cancel", class = "btn btn-sm btn-outline-danger")
+        dashboard_action_button_ui(
+          action = "cancel",
+          task_id = task$id,
+          label = "Cancel",
+          class = "btn btn-sm btn-outline-danger"
+        )
       }
     ),
     task_expand_block_ui(task, expanded = expanded)
@@ -132,9 +163,6 @@ running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE, ch
 # Returns:
 # - A `shiny::div` card tag.
 queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
-  select_id <- button_id_for_task("select", task$id)
-  cancel_id <- button_id_for_task("cancel", task$id)
-
   shiny::div(
     class = dashboard_card_class(task$status),
     `data-task-id` = as.character(task$id),
@@ -149,9 +177,19 @@ queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
     shiny::div(class = "task-card-meta", paste("Submitted:", task$submit_time_label)),
     shiny::div(
       class = "task-card-actions",
-      shiny::actionButton(select_id, ifelse(expanded, "Collapse", "Details"), class = "btn btn-sm btn-outline-primary"),
+      dashboard_action_button_ui(
+        action = "select",
+        task_id = task$id,
+        label = ifelse(expanded, "Collapse", "Details"),
+        class = "btn btn-sm btn-outline-primary"
+      ),
       if (isTRUE(allow_cancel)) {
-        shiny::actionButton(cancel_id, "Cancel", class = "btn btn-sm btn-outline-danger")
+        dashboard_action_button_ui(
+          action = "cancel",
+          task_id = task$id,
+          label = "Cancel",
+          class = "btn btn-sm btn-outline-danger"
+        )
       }
     ),
     task_expand_block_ui(task, expanded = expanded)
@@ -164,8 +202,6 @@ queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
 # Returns:
 # - A `shiny::div` card tag.
 finished_task_card_ui <- function(task, expanded = FALSE) {
-  select_id <- button_id_for_task("select", task$id)
-
   shiny::div(
     class = dashboard_card_class(task$status),
     `data-task-id` = as.character(task$id),
@@ -181,7 +217,12 @@ finished_task_card_ui <- function(task, expanded = FALSE) {
     },
     shiny::div(
       class = "task-card-actions",
-      shiny::actionButton(select_id, ifelse(expanded, "Collapse", "Details"), class = "btn btn-sm btn-outline-primary")
+      dashboard_action_button_ui(
+        action = "select",
+        task_id = task$id,
+        label = ifelse(expanded, "Collapse", "Details"),
+        class = "btn btn-sm btn-outline-primary"
+      )
     ),
     task_expand_block_ui(task, expanded = expanded)
   )
@@ -371,6 +412,21 @@ dashboard_scroll_js <- function() {
       "    setTimeout(function () { updateRunningElapsed(evt && evt.target ? evt.target : document); }, 0);",
       "  });",
       "  document.addEventListener('shiny:connected', function () { updateRunningElapsed(document); });",
+      "  document.addEventListener('click', function (evt) {",
+      "    var target = evt.target;",
+      "    var btn = target && target.closest ? target.closest('[data-taskr-action]') : null;",
+      "    if (!btn || btn.disabled) return;",
+      "    var action = btn.getAttribute('data-taskr-action') || '';",
+      "    var taskId = btn.getAttribute('data-taskr-task-id') || '';",
+      "    if (!action || !taskId) return;",
+      "    evt.preventDefault();",
+      "    if (!window.Shiny || !window.Shiny.setInputValue) return;",
+      "    window.Shiny.setInputValue('taskr_card_action', {",
+      "      action: action,",
+      "      task_id: taskId,",
+      "      nonce: Date.now() + ':' + Math.random()",
+      "    }, { priority: 'event' });",
+      "  });",
       "  function registerTaskrShinyHandlers() {",
       "    if (window.__taskrShinyHandlersRegistered) return;",
       "    if (!window.Shiny || !window.Shiny.addCustomMessageHandler) {",
@@ -608,8 +664,6 @@ queue_dashboard_app <- function(
       selected_panel_tracker <- shiny::reactiveVal(setNames(character(), character()))
       pending_running_cancel <- shiny::reactiveVal(NULL)
       refresh_nonce <- shiny::reactiveVal(0L)
-      observed_select_ids <- shiny::reactiveVal(character())
-      observed_cancel_ids <- shiny::reactiveVal(character())
       finished_filter_status <- shiny::reactiveVal("completed")
       display_progress_cache <- shiny::reactiveVal(list())
       pending_cancel_ids <- shiny::reactiveVal(character())
@@ -984,104 +1038,83 @@ queue_dashboard_app <- function(
         TRUE
       }
 
-      observe_register_buttons <- function(prefix, ids, ids_store, handler) {
-        known <- ids_store()
-        new_ids <- setdiff(ids, known)
-
-        if (length(new_ids) == 0) {
-          return(invisible(NULL))
+      select_card_task <- function(task_id) {
+        if (identical(selected_id(), task_id)) {
+          selected_id(NULL)
+        } else {
+          selected_id(task_id)
         }
-
-        for (task_id in new_ids) {
-          button_id <- button_id_for_task(prefix, task_id)
-          local({
-            current_task_id <- task_id
-            current_button_id <- button_id
-            shiny::observeEvent(input[[current_button_id]], {
-              handler(current_task_id)
-            }, ignoreInit = TRUE)
-          })
-        }
-
-        ids_store(unique(c(known, new_ids)))
         invisible(NULL)
       }
 
-      observe_task_buttons <- shiny::observe({
-        ids <- unique(c(
-          filtered_running_tasks()$id,
-          state_split()$queued$id,
-          state_split()$finished$id
-        ))
+      cancel_card_task <- function(task_id) {
+        if (!isTRUE(can_control)) {
+          return(invisible(NULL))
+        }
 
-        observe_register_buttons(
-          prefix = "select",
-          ids = ids,
-          ids_store = observed_select_ids,
-          handler = function(task_id) {
-            if (identical(selected_id(), task_id)) {
-              selected_id(NULL)
-            } else {
-              selected_id(task_id)
-            }
+        current <- state_tasks()
+        if (nrow(current) == 0) {
+          current <- running_tasks()
+        }
+        row <- current[current$id == task_id, , drop = FALSE]
+        if (nrow(row) == 0) {
+          return(invisible(NULL))
+        }
+
+        if (identical(row$status[[1]], "running")) {
+          pending_running_cancel(task_id)
+          shiny::showModal(shiny::modalDialog(
+            title = "Cancel running task?",
+            sprintf("Task '%s' is running. Cancel now?", row$label[[1]]),
+            footer = shiny::tagList(
+              shiny::modalButton("Keep running"),
+              shiny::actionButton("confirm_running_cancel", "Cancel task", class = "btn btn-danger")
+            )
+          ))
+          return(invisible(NULL))
+        }
+
+        if (identical(row$status[[1]], "queued")) {
+          if (!can_issue_action(paste0("cancel::", task_id))) {
+            return(invisible(NULL))
           }
-        )
 
-        observe_register_buttons(
-          prefix = "cancel",
-          ids = if (isTRUE(can_control)) ids else character(),
-          ids_store = observed_cancel_ids,
-          handler = function(task_id) {
-            current <- state_tasks()
-            if (nrow(current) == 0) {
-              current <- running_tasks()
+          if (isTRUE(control_via_server)) {
+            request_id <- send_control_request("cancel", task_id = task_id)
+            if (!is.null(request_id)) {
+              remember_pending_cancel(task_id = task_id, request_id = request_id)
             }
-            row <- current[current$id == task_id, , drop = FALSE]
-            if (nrow(row) == 0) {
-              return(invisible(NULL))
-            }
-
-            if (identical(row$status[[1]], "running")) {
-              pending_running_cancel(task_id)
-              shiny::showModal(shiny::modalDialog(
-                title = "Cancel running task?",
-                sprintf("Task '%s' is running. Cancel now?", row$label[[1]]),
-                footer = shiny::tagList(
-                  shiny::modalButton("Keep running"),
-                  shiny::actionButton("confirm_running_cancel", "Cancel task", class = "btn btn-danger")
-                )
-              ))
-              return(invisible(NULL))
-            }
-
-            if (identical(row$status[[1]], "queued")) {
-              if (!can_issue_action(paste0("cancel::", task_id))) {
-                return(invisible(NULL))
+          } else {
+            tryCatch(
+              {
+                cancel_task(task_id)
+                shiny::showNotification("Queued task canceled.", type = "message")
+              },
+              error = function(e) {
+                shiny::showNotification(conditionMessage(e), type = "error")
               }
-
-              if (isTRUE(control_via_server)) {
-                request_id <- send_control_request("cancel", task_id = task_id)
-                if (!is.null(request_id)) {
-                  remember_pending_cancel(task_id = task_id, request_id = request_id)
-                }
-              } else {
-                tryCatch(
-                  {
-                    cancel_task(task_id)
-                    shiny::showNotification("Queued task canceled.", type = "message")
-                  },
-                  error = function(e) {
-                    shiny::showNotification(conditionMessage(e), type = "error")
-                  }
-                )
-              }
-            }
-            invisible(NULL)
+            )
           }
-        )
-
+        }
         invisible(NULL)
-      })
+      }
+
+      shiny::observeEvent(input$taskr_card_action, {
+        event <- input$taskr_card_action
+        action <- as.character(event$action %||% "")
+        task_id <- as.character(event$task_id %||% "")
+        if (!nzchar(action) || !nzchar(task_id)) {
+          return(invisible(NULL))
+        }
+
+        if (identical(action, "select")) {
+          return(select_card_task(task_id))
+        }
+        if (identical(action, "cancel")) {
+          return(cancel_card_task(task_id))
+        }
+        invisible(NULL)
+      }, ignoreInit = TRUE)
 
       shiny::observeEvent(input$confirm_running_cancel, {
         if (!isTRUE(can_control)) {
@@ -1291,9 +1324,6 @@ queue_dashboard_app <- function(
         invisible(NULL)
       })
 
-      shiny::onSessionEnded(function() {
-        observe_task_buttons$destroy()
-      })
     }
   )
 

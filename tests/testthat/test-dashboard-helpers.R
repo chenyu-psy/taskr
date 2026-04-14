@@ -531,3 +531,38 @@ test_that("running task card hides message row when message is NA", {
   html <- as.character(ui)
   expect_false(grepl(">NA<", html, fixed = TRUE))
 })
+
+test_that("task card action buttons do not create duplicate Shiny input ids", {
+  skip_if_not_installed("shiny")
+
+  running_task_card_ui <- getFromNamespace("running_task_card_ui", "taskr")
+
+  task <- data.frame(
+    id = "task_001",
+    label = "demo",
+    status = "running",
+    running_elapsed = "5s",
+    start_time = as.POSIXct("2026-04-11 00:00:00", tz = "UTC"),
+    start_time_label = "04-11 00:00:00",
+    message = "",
+    priority = 1L,
+    submit_time_label = "04-11 00:00:00",
+    end_time_label = "-",
+    error = "",
+    stringsAsFactors = FALSE
+  )
+
+  ui <- running_task_card_ui(
+    task = task[1, , drop = FALSE],
+    expanded = FALSE,
+    chain_tab = data.frame(chain = integer(), progress = numeric(), phase = character(), stringsAsFactors = FALSE),
+    progress_ratio = 0.2
+  )
+  html <- as.character(ui)
+
+  expect_false(grepl('id="select_task_001"', html, fixed = TRUE))
+  expect_false(grepl('id="cancel_task_001"', html, fixed = TRUE))
+  expect_true(grepl('data-taskr-action="select"', html, fixed = TRUE))
+  expect_true(grepl('data-taskr-action="cancel"', html, fixed = TRUE))
+  expect_true(grepl('data-taskr-task-id="task_001"', html, fixed = TRUE))
+})
