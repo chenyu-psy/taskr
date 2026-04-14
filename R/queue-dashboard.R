@@ -665,7 +665,7 @@ queue_dashboard_app <- function(
       pending_running_cancel <- shiny::reactiveVal(NULL)
       refresh_nonce <- shiny::reactiveVal(0L)
       finished_filter_status <- shiny::reactiveVal("completed")
-      display_progress_cache <- shiny::reactiveVal(list())
+      display_progress_cache <- new.env(parent = emptyenv())
       pending_cancel_ids <- shiny::reactiveVal(character())
       pending_cancel_requests <- shiny::reactiveVal(setNames(character(), character()))
       action_cooldown <- shiny::reactiveVal(list())
@@ -713,6 +713,27 @@ queue_dashboard_app <- function(
         # front-end cleanup so the dashboard remains usable while cancel runs.
         shiny::removeModal()
         session$sendCustomMessage("taskr_force_close_modal", list())
+        invisible(NULL)
+      }
+
+      cached_display_progress <- function(task_id) {
+        if (!exists(task_id, envir = display_progress_cache, inherits = FALSE)) {
+          return(NA_real_)
+        }
+        suppressWarnings(as.numeric(get(task_id, envir = display_progress_cache, inherits = FALSE)))
+      }
+
+      remember_display_progress <- function(task_id, progress) {
+        assign(task_id, as.numeric(progress), envir = display_progress_cache)
+        invisible(NULL)
+      }
+
+      drop_stale_display_progress <- function(active_ids) {
+        cached_ids <- ls(display_progress_cache, all.names = TRUE)
+        stale_ids <- setdiff(cached_ids, as.character(active_ids))
+        if (length(stale_ids) > 0) {
+          rm(list = stale_ids, envir = display_progress_cache)
+        }
         invisible(NULL)
       }
 
@@ -882,10 +903,6 @@ queue_dashboard_app <- function(
         running_tab <- filtered_running_tasks()
         now_ts <- Sys.time()
         fallback_wait_sec <- dashboard_initial_progress_wait_sec()
-        progress_cache <- display_progress_cache()
-        if (is.null(progress_cache)) {
-          progress_cache <- list()
-        }
 
         chain_by_id <- list()
         progress_by_id <- list()
@@ -894,7 +911,7 @@ queue_dashboard_app <- function(
           task_row <- running_tab[i, , drop = FALSE]
           task_id <- as.character(task_row$id[[1]])
           task_progress <- as.numeric(task_row$progress[[1]])
-          cached_progress <- suppressWarnings(as.numeric(progress_cache[[task_id]] %||% NA_real_))
+          cached_progress <- cached_display_progress(task_id)
 
           # Parse progress from the already-polled row snapshot to avoid an
           # extra per-task log query during each UI refresh.
@@ -912,17 +929,11 @@ queue_dashboard_app <- function(
           )
 
           progress_by_id[[task_id]] <- resolved
-          progress_cache[[task_id]] <- resolved
+          remember_display_progress(task_id, resolved)
         }
 
         running_ids <- as.character(running_tab$id %||% character())
-        if (length(progress_cache) > 0) {
-          drop_ids <- setdiff(names(progress_cache), running_ids)
-          if (length(drop_ids) > 0) {
-            progress_cache[drop_ids] <- NULL
-          }
-        }
-        display_progress_cache(progress_cache)
+        drop_stale_display_progress(running_ids)
 
         dashboard_card_list_ui(
           running_tab,
@@ -1211,7 +1222,7 @@ queue_dashboard_app <- function(
             {
               shutdown_queue()
               init_queue(max_slots = slots)
-              display_progress_cache(list())
+              drop_stale_display_progress(character())
               selected_id(NULL)
               shiny::showNotification("All tasks cleared.", type = "message")
             },
