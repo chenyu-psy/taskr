@@ -26,9 +26,14 @@ test_that("register_active_task and unregister_active_task update package state"
 })
 
 test_that("cleanup_active_tasks kills tracked tasks", {
+  state <- new.env(parent = emptyenv())
+  state$alive <- TRUE
   fake_process <- list(
-    is_alive = function() TRUE,
-    kill = function() invisible(NULL)
+    is_alive = function() state$alive,
+    kill = function() {
+      state$alive <- FALSE
+      invisible(NULL)
+    }
   )
 
   task <- taskr:::Task$new(
@@ -65,9 +70,14 @@ test_that("read_task_result_file reports a clear missing-file error", {
 
 test_that(".onUnload kills tracked tasks and removes the temp directory", {
   tempdir_path <- taskr:::pkg_env$tempdir
+  state <- new.env(parent = emptyenv())
+  state$alive <- TRUE
   fake_process <- list(
-    is_alive = function() TRUE,
-    kill = function() invisible(NULL)
+    is_alive = function() state$alive,
+    kill = function() {
+      state$alive <- FALSE
+      invisible(NULL)
+    }
   )
   task <- taskr:::Task$new(
     id = "task_state_003",

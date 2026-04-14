@@ -126,6 +126,39 @@ test_that("Task kill updates status and stops the process", {
   expect_s3_class(task$finished_at, "POSIXct")
 })
 
+test_that("Task kill errors if the process stays alive", {
+  fake_process <- make_fake_process(alive = TRUE)
+  fake_process$kill <- function() {
+    fake_process$state$kill_calls <- fake_process$state$kill_calls + 1L
+    invisible(NULL)
+  }
+  task <- taskr:::Task$new(
+    id = "task_stubborn",
+    process = fake_process,
+    status = "running"
+  )
+
+  expect_error(task$kill(), "still alive")
+  expect_equal(fake_process$state$kill_calls, 1L)
+  expect_equal(task$status(), "running")
+})
+
+test_that("Task status keeps cancelled result from becoming completed", {
+  fake_process <- make_fake_process(alive = FALSE)
+  result_path <- tempfile(fileext = ".rds")
+  saveRDS(1L, result_path)
+  task <- taskr:::Task$new(
+    id = "task_cancel_race",
+    process = fake_process,
+    status = "running",
+    result_path = result_path
+  )
+  task$cancel_requested <- TRUE
+
+  expect_equal(task$status(), "cancelled")
+  expect_false(file.exists(result_path))
+})
+
 test_that("Task elapsed returns a non-negative number", {
   task <- taskr:::Task$new(id = "task_004")
 

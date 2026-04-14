@@ -21,6 +21,7 @@ Task <- R6::R6Class(
     result_path = NULL,
     error = NULL,
     call_result = NULL,
+    cancel_requested = FALSE,
 
     initialize = function(id, process = NULL, status = "queued", result_path = NULL) {
 # Create a new internal task object.
@@ -62,6 +63,7 @@ Task <- R6::R6Class(
       self$result_path <- result_path
       self$error <- NULL
       self$call_result <- NULL
+      self$cancel_requested <- FALSE
 
       if (identical(status, "running")) {
         self$started_at <- self$created_at
@@ -124,6 +126,15 @@ Task <- R6::R6Class(
       }
 
       if (is.null(self$process)) {
+        return(self$status_value)
+      }
+
+      if (isTRUE(self$cancel_requested) && !self$is_alive()) {
+        if (!is.null(self$result_path) && file.exists(self$result_path)) {
+          unlink(self$result_path, force = TRUE)
+        }
+        self$set_status("cancelled")
+        unregister_active_task(self$id)
         return(self$status_value)
       }
 
@@ -267,23 +278,61 @@ Task <- R6::R6Class(
 # Stop the underlying process and mark the task as cancelled.
 #
 # Purpose:
-# - Provide one place where queue code can terminate a running task.
+# - Provide one place where queue code can terminate a running task and verify
+#   that the child process actually stopped.
 #
 # Returns:
 # - Invisibly returns the task object.
 #
 # Assumptions and side effects:
-# - Calls `$kill()` on the process handle when present.
-# - Updates status bookkeeping on the task object.
+# - Prefer `$kill_tree()` when available so child processes spawned by the task
+#   are also stopped.
+# - Marks the task as cancelled only after the process is no longer alive.
+      self$cancel_requested <- TRUE
+
       if (!is.null(self$process) && self$is_alive()) {
-        self$process$kill()
+        if (!is.null(self$process$kill_tree) && is.function(self$process$kill_tree)) {
+          self$process$kill_tree()
+        } else {
+          self$process$kill()
+        }
+        self$wait_until_stopped(timeout_sec = 2)
       }
+
+      if (self$is_alive()) {
+        stop("Task process is still alive after cancellation request.")
+      }
+
       if (!is.null(self$process) && is.function(self$process$close)) {
         try(self$process$close(), silent = TRUE)
       }
 
+      if (!is.null(self$result_path) && file.exists(self$result_path)) {
+        unlink(self$result_path, force = TRUE)
+      }
       self$set_status("cancelled")
       unregister_active_task(self$id)
+      invisible(self)
+    },
+
+    wait_until_stopped = function(timeout_sec = 2) {
+# Wait briefly for a cancellation request to stop the child process.
+#
+# Purpose:
+# - Avoid reporting a task as cancelled while its child process is still using
+#   compute resources.
+#
+# Parameters:
+# - `timeout_sec`: Maximum number of seconds to wait.
+#
+# Returns:
+# - Invisibly returns `TRUE` when the process stopped and `FALSE` otherwise.
+      deadline <- Sys.time() + as.numeric(timeout_sec)
+      while (self$is_alive() && Sys.time() < deadline) {
+        Sys.sleep(0.05)
+      }
+
+      invisible(!self$is_alive())
     },
 
     elapsed = function() {
