@@ -566,3 +566,15 @@ test_that("task card action buttons do not create duplicate Shiny input ids", {
   expect_true(grepl('data-taskr-action="cancel"', html, fixed = TRUE))
   expect_true(grepl('data-taskr-task-id="task_001"', html, fixed = TRUE))
 })
+
+test_that("dashboard custom message handlers use Shiny-compatible signatures", {
+  skip_if_not_installed("shiny")
+
+  dashboard_scroll_js <- getFromNamespace("dashboard_scroll_js", "taskr")
+  script <- as.character(dashboard_scroll_js())
+
+  expect_true(grepl("addCustomMessageHandler('taskr_update_logs', function (msg)", script, fixed = TRUE))
+  expect_true(grepl("addCustomMessageHandler('taskr_focus_task', function (msg)", script, fixed = TRUE))
+  expect_true(grepl("addCustomMessageHandler('taskr_force_close_modal', function (msg)", script, fixed = TRUE))
+  expect_true(grepl("addCustomMessageHandler('taskr_control_request', function (msg)", script, fixed = TRUE))
+})

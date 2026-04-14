@@ -496,7 +496,7 @@ dashboard_scroll_js <- function() {
       "        document.body.style.removeProperty('overflow');",
       "      }",
       "    }",
-      "    window.Shiny.addCustomMessageHandler('taskr_force_close_modal', function () {",
+      "    window.Shiny.addCustomMessageHandler('taskr_force_close_modal', function (msg) {",
       "      forceCloseTaskrModal();",
       "      setTimeout(forceCloseTaskrModal, 50);",
       "      setTimeout(forceCloseTaskrModal, 250);",
