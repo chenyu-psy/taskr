@@ -108,7 +108,7 @@ printed in the console into a web browser.
 ## Overview
 
 The dashboard gives a single view of the current queue. It separates running,
-waiting, and finished tasks so you can quickly see what is happening without
+pending, and finished tasks so you can quickly see what is happening without
 polling the console.
 
 ![Dashboard overview](inst/images/dashboard-panels/overview.jpg)
