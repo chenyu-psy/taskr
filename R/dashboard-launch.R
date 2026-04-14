@@ -122,7 +122,7 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
   if (!file.exists(snapshot_path)) {
     write_dashboard_snapshot()
   }
-  ensure_dashboard_command_file(command_path)
+  ensure_dashboard_command_dir(command_path)
 
   port <- dashboard_pick_port()
   url <- sprintf("http://127.0.0.1:%d", port)

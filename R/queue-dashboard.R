@@ -524,20 +524,62 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
       display_progress_cache <- shiny::reactiveVal(list())
       pending_cancel_ids <- shiny::reactiveVal(character())
       action_cooldown <- shiny::reactiveVal(list())
-      read_snapshot_tasks <- function() {
+      read_snapshot_state <- function() {
         out <- tryCatch(read_dashboard_snapshot(path = snapshot_path), error = function(e) NULL)
         if (is.null(out)) {
-          return(list(tasks = empty_dashboard_table(), max_slots = 1L))
+          return(list(
+            session_id = NA_character_,
+            command_path = command_path,
+            ack_path = NA_character_,
+            tasks = empty_dashboard_table(),
+            max_slots = 1L
+          ))
         }
         list(
+          session_id = out$session_id %||% NA_character_,
+          command_path = out$command_path %||% command_path,
+          ack_path = out$ack_path %||% NA_character_,
           tasks = out$tasks %||% empty_dashboard_table(),
           max_slots = as.integer(out$max_slots %||% 1L)
         )
       }
 
+      enqueue_dashboard_action <- function(action, task_id = NULL) {
+        snap <- read_snapshot_state()
+        request_id <- NULL
+        ok <- TRUE
+        err_msg <- NULL
+
+        tryCatch(
+          {
+            request_id <- dashboard_enqueue_command(
+              action = action,
+              task_id = task_id,
+              path = snap$command_path,
+              session_id = snap$session_id
+            )
+          },
+          error = function(e) {
+            ok <<- FALSE
+            err_msg <<- conditionMessage(e)
+          }
+        )
+
+        if (!isTRUE(ok)) {
+          warning("Dashboard command enqueue failed for `", action, "`: ", err_msg)
+          shiny::showNotification(
+            paste0("Failed to send dashboard command: ", err_msg),
+            type = "error"
+          )
+          return(NULL)
+        }
+
+        request_id
+      }
+
       read_current_dashboard_tasks <- function() {
         if (isTRUE(read_only)) {
-          return(read_snapshot_tasks()$tasks)
+          return(read_snapshot_state()$tasks)
         }
         tryCatch(extract_dashboard_snapshot(now = Sys.time()), error = function(e) empty_dashboard_table())
       }
@@ -639,7 +681,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
 
       output$summary_progress <- shiny::renderUI({
         slots <- if (isTRUE(read_only)) {
-          read_snapshot_tasks()$max_slots %||% 1L
+          read_snapshot_state()$max_slots %||% 1L
         } else {
           pkg_env$scheduler$capacity$slots %||% 1L
         }
@@ -909,8 +951,10 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
               }
 
               if (isTRUE(control_via_commands)) {
-                try(dashboard_enqueue_command("cancel_task", task_id = task_id, path = command_path), silent = TRUE)
-                pending_cancel_ids(unique(c(pending_cancel_ids(), task_id)))
+                request_id <- enqueue_dashboard_action("cancel_task", task_id = task_id)
+                if (!is.null(request_id)) {
+                  pending_cancel_ids(unique(c(pending_cancel_ids(), task_id)))
+                }
               } else {
                 tryCatch(
                   {
@@ -946,8 +990,10 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
         }
 
         if (isTRUE(control_via_commands)) {
-          try(dashboard_enqueue_command("cancel_task", task_id = task_id, path = command_path), silent = TRUE)
-          pending_cancel_ids(unique(c(pending_cancel_ids(), task_id)))
+          request_id <- enqueue_dashboard_action("cancel_task", task_id = task_id)
+          if (!is.null(request_id)) {
+            pending_cancel_ids(unique(c(pending_cancel_ids(), task_id)))
+          }
         } else {
           tryCatch(
             {
@@ -1012,7 +1058,7 @@ queue_dashboard_app <- function(data_mode = c("live", "snapshot"), snapshot_path
           if (length(active_ids) > 0) {
             pending_cancel_ids(unique(c(pending_cancel_ids(), active_ids)))
           }
-          try(dashboard_enqueue_command("clear_all", path = command_path), silent = TRUE)
+          enqueue_dashboard_action("clear_all")
         } else {
           slots <- as.integer(pkg_env$scheduler$capacity$slots %||% 1L)
           if (is.na(slots) || slots < 1L) {

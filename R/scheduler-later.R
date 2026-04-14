@@ -20,6 +20,22 @@ scheduler_has_work <- function(state) {
   length(state$queue %||% list()) > 0 || length(state$running %||% list()) > 0
 }
 
+dashboard_process_alive <- function() {
+  proc <- pkg_env$dashboard_process %||% NULL
+  !is.null(proc) && is.function(proc$is_alive) && isTRUE(proc$is_alive())
+}
+
+dashboard_commands_pending <- function(path = dashboard_command_path()) {
+  if (!dir.exists(path)) {
+    return(FALSE)
+  }
+  length(list.files(path, pattern = "[.]json$", full.names = FALSE)) > 0
+}
+
+scheduler_needs_command_polling <- function() {
+  dashboard_process_alive() || dashboard_commands_pending()
+}
+
 schedule_next_tick <- function() {
   if (is.null(pkg_env$scheduler)) {
     return(invisible(NULL))
@@ -44,7 +60,9 @@ update_scheduler <- function() {
   pkg_env$scheduler <- update_queue(pkg_env$scheduler)
   write_dashboard_snapshot()
 
-  if (!scheduler_has_work(pkg_env$scheduler) || isTRUE(pkg_env$scheduler$scheduler_should_stop)) {
+  keep_polling <- scheduler_needs_command_polling()
+  if ((!scheduler_has_work(pkg_env$scheduler) && !isTRUE(keep_polling)) ||
+      (isTRUE(pkg_env$scheduler$scheduler_should_stop) && !isTRUE(keep_polling))) {
     stop_scheduler()
     return(invisible(NULL))
   }
@@ -62,7 +80,7 @@ start_scheduler <- function(interval = NULL) {
     pkg_env$scheduler$scheduler_interval <- validate_scheduler_interval(interval)
   }
 
-  if (!scheduler_has_work(pkg_env$scheduler)) {
+  if (!scheduler_has_work(pkg_env$scheduler) && !isTRUE(scheduler_needs_command_polling())) {
     return(invisible(FALSE))
   }
 

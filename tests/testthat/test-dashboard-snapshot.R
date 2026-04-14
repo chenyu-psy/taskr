@@ -37,6 +37,12 @@ test_that("dashboard snapshot round-trip keeps task rows readable", {
   write_dashboard_snapshot(now = now)
   snap <- read_dashboard_snapshot()
 
+  expect_true(is.character(snap$session_id))
+  expect_true(length(snap$session_id) == 1)
+  expect_true(is.character(snap$command_path))
+  expect_true(length(snap$command_path) == 1)
+  expect_true(is.character(snap$ack_path))
+  expect_true(length(snap$ack_path) == 1)
   expect_equal(snap$max_slots, 3L)
   expect_true(is.data.frame(snap$tasks))
   expect_equal(nrow(snap$tasks), 1)

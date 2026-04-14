@@ -20,8 +20,11 @@ write_dashboard_snapshot <- function(now = Sys.time()) {
   tab <- add_dashboard_derived_columns(tab, now = now)
 
   payload <- list(
+    session_id = dashboard_session_id(),
     generated_at = format(now, "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
     max_slots = as.integer(state$capacity$slots %||% 1L),
+    command_path = dashboard_command_path(),
+    ack_path = dashboard_ack_dir(),
     tasks = tab
   )
 
@@ -33,8 +36,11 @@ write_dashboard_snapshot <- function(now = Sys.time()) {
 read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
   if (!is.character(path) || length(path) != 1 || is.na(path) || !nzchar(path) || !file.exists(path)) {
     return(list(
+      session_id = NA_character_,
       generated_at = NA_character_,
       max_slots = 1L,
+      command_path = NA_character_,
+      ack_path = NA_character_,
       tasks = empty_dashboard_table()
     ))
   }
@@ -46,8 +52,11 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
 
   if (is.null(payload)) {
     return(list(
+      session_id = NA_character_,
       generated_at = NA_character_,
       max_slots = 1L,
+      command_path = NA_character_,
+      ack_path = NA_character_,
       tasks = empty_dashboard_table()
     ))
   }
@@ -109,8 +118,11 @@ read_dashboard_snapshot <- function(path = dashboard_snapshot_path()) {
   tab$end_time <- as_posix_snapshot(tab$end_time, n = n)
 
   list(
+    session_id = payload$session_id %||% NA_character_,
     generated_at = payload$generated_at %||% NA_character_,
     max_slots = as.integer(payload$max_slots %||% 1L),
+    command_path = payload$command_path %||% NA_character_,
+    ack_path = payload$ack_path %||% NA_character_,
     tasks = tab
   )
 }
