@@ -1,0 +1,210 @@
+# Task Control API (User-Facing)
+#
+# Purpose:
+# - Cancel queued/running tasks by id or label.
+# - Clean terminal task records and temporary result files.
+
+delete_task_result_file <- function(item) {
+  path <- item$result_path %||% NULL
+  if (is.null(path) || !is.character(path) || length(path) != 1 || is.na(path) || !nzchar(path)) {
+    return(invisible(NULL))
+  }
+
+  if (file.exists(path)) {
+    unlink(path, force = TRUE)
+  }
+  invisible(NULL)
+}
+
+cancel_running_task_or_error <- function(task_obj, id) {
+  if (is.null(task_obj)) {
+    stop("Running task `", id, "` has no task object; cannot cancel safely.")
+  }
+
+  kill_err <- NULL
+  tryCatch(
+    task_obj$kill(),
+    error = function(e) {
+      kill_err <<- conditionMessage(e)
+    }
+  )
+
+  if (!is.null(kill_err)) {
+    stop("Failed to cancel running task `", id, "`: ", kill_err)
+  }
+
+  invisible(NULL)
+}
+
+get_active_task_by_id <- function(id) {
+# Return a still-registered task object by id.
+#
+# Purpose:
+# - Provide a last-resort lookup when scheduler state is stale or missing.
+#
+# Parameters:
+# - `id`: Internal task id, not a label.
+#
+# Returns:
+# - Task object when it is still registered; otherwise `NULL`.
+  if (is.null(pkg_env$active_tasks)) {
+    return(NULL)
+  }
+  if (!exists(id, envir = pkg_env$active_tasks, inherits = FALSE)) {
+    return(NULL)
+  }
+
+  get(id, envir = pkg_env$active_tasks, inherits = FALSE)
+}
+
+active_task_is_alive <- function(task_obj) {
+# Report whether a registry task still has a live child process.
+#
+# Purpose:
+# - Distinguish a harmless stale terminal record from a real leaked process.
+#
+# Parameters:
+# - `task_obj`: Internal task object or process-like test double.
+#
+# Returns:
+# - `logical(1)`: `TRUE` only when the task reports it is alive.
+  if (is.null(task_obj) || is.null(task_obj$is_alive) || !is.function(task_obj$is_alive)) {
+    return(FALSE)
+  }
+
+  isTRUE(tryCatch(task_obj$is_alive(), error = function(e) FALSE))
+}
+
+cancel_active_task_by_id <- function(id) {
+# Kill a registered task when scheduler lookup cannot find it.
+#
+# Purpose:
+# - Release compute resources even if queue/running/finished state became
+#   stale before the user requested cancellation.
+#
+# Parameters:
+# - `id`: Internal task id.
+#
+# Returns:
+# - `TRUE` when a registered task was killed, otherwise `FALSE`.
+  task_obj <- get_active_task_by_id(id)
+  if (is.null(task_obj)) {
+    return(FALSE)
+  }
+
+  cancel_running_task_or_error(task_obj = task_obj, id = id)
+  unregister_active_task(id)
+  TRUE
+}
+
+#' Cancel One Task by Id or Label
+#'
+#' Purpose:
+#' - Remove a queued task or kill a running task.
+#' - Mark canceled tasks as `cancelled` in terminal records.
+#'
+#' @param id_or_label Task id or label used to identify one task.
+#' @return Invisibly returns `NULL`.
+#' @examples
+#' init_queue(max_slots = 1)
+#' # cancel_task("task_001")
+#' @export
+cancel_task <- function(id_or_label) {
+  validate_id_or_label(id_or_label)
+
+  if (is.null(pkg_env$scheduler)) {
+    if (cancel_active_task_by_id(id_or_label)) {
+      write_dashboard_snapshot()
+      return(invisible(NULL))
+    }
+    stop("Queue is not initialized. Call `init_queue()` first.")
+  }
+
+  pkg_env$scheduler <- recycle_running_tasks(pkg_env$scheduler, now = Sys.time())
+  matched <- resolve_task_reference(pkg_env$scheduler, id_or_label)
+  if (is.null(matched)) {
+    if (cancel_active_task_by_id(id_or_label)) {
+      write_dashboard_snapshot()
+      return(invisible(NULL))
+    }
+    stop("Task not found for `id_or_label = ", id_or_label, "`.")
+  }
+  item <- matched$item
+  now <- Sys.time()
+
+  if (identical(matched$bucket, "finished")) {
+    active_task <- get_active_task_by_id(item$id)
+    if (active_task_is_alive(active_task)) {
+      cancel_running_task_or_error(task_obj = active_task, id = item$id)
+      unregister_active_task(item$id)
+      item$status <- "cancelled"
+      item$end_time <- now
+      item$error <- item$error %||% "Task canceled by user."
+      pkg_env$scheduler$finished[[item$id]] <- item
+      delete_task_result_file(item)
+      write_dashboard_snapshot()
+      return(invisible(NULL))
+    }
+
+    warning("Task is already terminal; no cancellation was applied.")
+    return(invisible(NULL))
+  }
+
+  if (identical(matched$bucket, "queue")) {
+    pkg_env$scheduler$queue <- pkg_env$scheduler$queue[-matched$index]
+  } else if (identical(matched$bucket, "running")) {
+    run_id <- matched$index
+    run_item <- pkg_env$scheduler$running[[run_id]]
+    cancel_running_task_or_error(task_obj = run_item$task, id = run_item$id %||% run_id)
+    pkg_env$scheduler$running[[run_id]] <- NULL
+  }
+
+  item$status <- "cancelled"
+  item$end_time <- now
+  item$error <- item$error %||% "Task canceled by user."
+  pkg_env$scheduler$finished[[item$id]] <- item
+  delete_task_result_file(item)
+  pkg_env$scheduler <- update_queue(pkg_env$scheduler, now = now)
+  if (!scheduler_has_work(pkg_env$scheduler)) {
+    stop_scheduler()
+  } else {
+    start_scheduler()
+  }
+  write_dashboard_snapshot()
+
+  invisible(NULL)
+}
+
+#' Clean Terminal Task Records and Temporary Files
+#'
+#' Purpose:
+#' - Remove completed/failed/cancelled tasks from scheduler memory.
+#' - Delete their result files when present.
+#'
+#' @return Invisibly returns `NULL`.
+#' @examples
+#' init_queue(max_slots = 1)
+#' clean_tasks()
+#' @export
+clean_tasks <- function() {
+  if (is.null(pkg_env$scheduler)) {
+    return(invisible(NULL))
+  }
+
+  finished_items <- pkg_env$scheduler$finished %||% list()
+  if (length(finished_items) == 0) {
+    return(invisible(NULL))
+  }
+
+  for (item in finished_items) {
+    delete_task_result_file(item)
+    pkg_env$scheduler <- remove_label_index_entry(pkg_env$scheduler, item)
+  }
+
+  pkg_env$scheduler$finished <- list()
+  if (!scheduler_has_work(pkg_env$scheduler)) {
+    stop_scheduler()
+  }
+  write_dashboard_snapshot()
+  invisible(NULL)
+}

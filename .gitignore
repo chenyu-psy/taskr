@@ -8,6 +8,7 @@
 
 # User-specific files
 .Ruserdata
+.DS_Store
 
 # Example code in package build process
 *-Ex.R
@@ -38,6 +39,11 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+# Local dev config
+.Rprofile
+.claude/
+Plan.md
 
 # pkgdown site
 docs/
