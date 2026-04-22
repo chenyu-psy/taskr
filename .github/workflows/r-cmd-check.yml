@@ -27,5 +27,4 @@ jobs:
           needs: check
       - uses: r-lib/actions/check-r-package@v2
         with:
-          build_args: 'c("--no-manual")'
-          args: 'c("--as-cran")'
+          args: 'c("--as-cran", "--no-manual")'
