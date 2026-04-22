@@ -287,8 +287,12 @@ Task <- R6::R6Class(
 # Assumptions and side effects:
 # - Prefer `$kill_tree()` when available so child processes spawned by the task
 #   are also stopped.
+# - If the process still appears alive, try one process-group fallback kill so
+#   parallel child workers (for example CmdStan chains) are also released.
 # - Marks the task as cancelled only after the process is no longer alive.
       self$cancel_requested <- TRUE
+      pid <- task_process_pid(self$process)
+      pgid <- task_process_group_id(pid)
 
       if (!is.null(self$process) && self$is_alive()) {
         if (!is.null(self$process$kill_tree) && is.function(self$process$kill_tree)) {
@@ -297,6 +301,10 @@ Task <- R6::R6Class(
           self$process$kill()
         }
         self$wait_until_stopped(timeout_sec = 2)
+      }
+
+      if (self$is_alive()) {
+        task_kill_process_group(pgid = pgid, timeout_sec = 0.2)
       }
 
       if (self$is_alive()) {
@@ -465,6 +473,116 @@ task_read_stream <- function(process, stream = c("output", "error")) {
   }
 
   ""
+}
+
+#' Read one operating-system PID from a process-like object.
+#'
+#' Purpose:
+#' - Provide a small adapter layer so cancellation code can inspect the process
+#'   id without depending on one backend class.
+#'
+#' Parameters:
+#' - `process`: Optional process-like object.
+#'
+#' Returns:
+#' - `integer(1)`: PID when available, otherwise `NA_integer_`.
+#'
+#' @keywords internal
+task_process_pid <- function(process) {
+  if (is.null(process) || is.null(process$get_pid) || !is.function(process$get_pid)) {
+    return(NA_integer_)
+  }
+
+  pid <- suppressWarnings(as.integer(tryCatch(process$get_pid(), error = function(e) NA_integer_)))
+  if (length(pid) != 1 || is.na(pid) || pid < 1L) {
+    return(NA_integer_)
+  }
+
+  pid
+}
+
+#' Lookup process-group id for one PID.
+#'
+#' Purpose:
+#' - Retrieve a process group id so cancellation can target the full group when
+#'   a single-process kill leaves child workers alive.
+#'
+#' Parameters:
+#' - `pid`: Root process PID.
+#'
+#' Returns:
+#' - `integer(1)`: Process-group id when available, otherwise `NA_integer_`.
+#'
+#' Assumptions and side effects:
+#' - Uses `ps` on Unix-like systems. Returns `NA` on unsupported platforms.
+#'
+#' @keywords internal
+task_process_group_id <- function(pid) {
+  pid <- suppressWarnings(as.integer(pid))
+  if (length(pid) != 1 || is.na(pid) || pid < 1L) {
+    return(NA_integer_)
+  }
+  if (.Platform$OS.type == "windows") {
+    return(NA_integer_)
+  }
+
+  out <- tryCatch(
+    suppressWarnings(
+      system2("ps", args = c("-o", "pgid=", "-p", as.character(pid)), stdout = TRUE, stderr = FALSE)
+    ),
+    error = function(e) character()
+  )
+  if (length(out) == 0) {
+    return(NA_integer_)
+  }
+
+  pgid <- suppressWarnings(as.integer(trimws(out[[1]])))
+  if (length(pgid) != 1 || is.na(pgid) || pgid < 1L) {
+    return(NA_integer_)
+  }
+
+  pgid
+}
+
+#' Send TERM then KILL to one process group.
+#'
+#' Purpose:
+#' - Provide a conservative fallback when ordinary task cancellation fails to
+#'   stop all child workers.
+#'
+#' Parameters:
+#' - `pgid`: Process-group id to target.
+#' - `timeout_sec`: Short wait between TERM and KILL.
+#'
+#' Returns:
+#' - `logical(1)`: `TRUE` when at least one signal call was attempted.
+#'
+#' Assumptions and side effects:
+#' - Uses a negative PID with `tools::pskill()` to signal a process group on
+#'   Unix-like systems.
+#'
+#' @keywords internal
+task_kill_process_group <- function(pgid, timeout_sec = 0.2) {
+  pgid <- suppressWarnings(as.integer(pgid))
+  if (length(pgid) != 1 || is.na(pgid) || pgid < 1L) {
+    return(FALSE)
+  }
+  if (.Platform$OS.type == "windows") {
+    return(FALSE)
+  }
+
+  did_signal <- FALSE
+  try({
+    tools::pskill(-pgid, signal = tools::SIGTERM)
+    did_signal <- TRUE
+  }, silent = TRUE)
+  Sys.sleep(max(0, as.numeric(timeout_sec)))
+  try({
+    tools::pskill(-pgid, signal = tools::SIGKILL)
+    did_signal <- TRUE
+  }, silent = TRUE)
+
+  did_signal
 }
 
 #' Build a readable task failure message.

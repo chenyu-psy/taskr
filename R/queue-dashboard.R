@@ -794,18 +794,23 @@ queue_dashboard_app <- function(
         invisible(NULL)
       }
 
-      # Kill a running task process directly from the dashboard process.
+      # Kill a running task process immediately from the dashboard process.
       # Args:
       # - pid: Operating-system PID from the dashboard snapshot.
       # Returns:
-      # - Invisibly returns TRUE when a plausible PID was targeted, otherwise FALSE.
+      # - Invisibly returns TRUE when a plausible kill signal was sent.
       # Side effects:
-      # - Sends TERM first, then KILL. Cancel is resource control, so releasing
-      #   the process is more important than waiting for a graceful log flush.
+      # - Prefer process-group kill so parallel child workers are released.
+      # - Fall back to single-PID TERM/KILL when group lookup is unavailable.
       kill_dashboard_pid <- function(pid) {
         pid <- suppressWarnings(as.integer(pid))
         if (length(pid) != 1 || is.na(pid) || pid < 1L) {
           return(invisible(FALSE))
+        }
+
+        pgid <- task_process_group_id(pid)
+        if (!is.na(pgid) && task_kill_process_group(pgid = pgid, timeout_sec = 0.1)) {
+          return(invisible(TRUE))
         }
 
         try(tools::pskill(pid, signal = tools::SIGTERM), silent = TRUE)
@@ -821,8 +826,8 @@ queue_dashboard_app <- function(
       # Returns:
       # - TRUE when the file-based control path is available, otherwise FALSE.
       # Side effects:
-      # - Writes a cancel marker for the scheduler and kills the process PID
-      #   immediately when the snapshot contains one.
+      # - Writes a cancel marker consumed by the scheduler process.
+      # - Also sends immediate kill signals to reduce CPU usage quickly.
       request_local_cancel <- function(task_id, row = NULL) {
         if (!isTRUE(control_via_files)) {
           return(FALSE)
