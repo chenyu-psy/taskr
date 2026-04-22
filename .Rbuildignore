@@ -3,3 +3,5 @@
 ^\.claude$
 ^\.Rprofile$
 ^Plan\.md$
+^docs$
+^LICENSE\.md$
