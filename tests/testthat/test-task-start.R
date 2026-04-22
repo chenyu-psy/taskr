@@ -249,3 +249,62 @@ test_that("Task kill stops child work from continuing after cancel", {
 
   close_task_process(task)
 })
+
+test_that("task_process_pid returns NA for unsupported process objects", {
+  expect_true(is.na(taskr:::task_process_pid(NULL)))
+  expect_true(is.na(taskr:::task_process_pid(list())))
+})
+
+test_that("task_process_group_id returns a valid value for current process on Unix", {
+  skip_on_os("windows")
+
+  pgid <- taskr:::task_process_group_id(Sys.getpid())
+  expect_true(is.integer(pgid))
+  expect_true(length(pgid) == 1)
+  expect_true(!is.na(pgid))
+  expect_true(pgid >= 1L)
+})
+
+test_that("task_kill_process_group validates input", {
+  expect_false(taskr:::task_kill_process_group(NA_integer_))
+  expect_false(taskr:::task_kill_process_group(0L))
+  expect_false(taskr:::task_kill_process_group(-1L))
+})
+
+test_that("Task kill falls back to process-group kill when direct kill does not stop process", {
+  state <- new.env(parent = emptyenv())
+  state$alive <- TRUE
+  state$group_kill_called <- FALSE
+  state$closed <- FALSE
+
+  proc <- list(
+    is_alive = function() state$alive,
+    kill_tree = function() invisible(NULL),
+    kill = function() invisible(NULL),
+    close = function() {
+      state$closed <- TRUE
+      invisible(NULL)
+    },
+    get_pid = function() Sys.getpid()
+  )
+
+  local_mocked_bindings(
+    task_process_group_id = function(pid) {
+      999999L
+    },
+    task_kill_process_group = function(pgid, timeout_sec = 0.2) {
+      state$group_kill_called <- TRUE
+      state$alive <- FALSE
+      TRUE
+    },
+    .package = "taskr"
+  )
+
+  task <- taskr:::Task$new(id = "task_107", process = proc, status = "running")
+  task$kill()
+
+  expect_true(state$group_kill_called)
+  expect_true(state$closed)
+  expect_false(task$is_alive())
+  expect_equal(task$status(), "cancelled")
+})
