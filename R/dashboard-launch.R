@@ -63,20 +63,80 @@ dashboard_collect_process_logs <- function(proc) {
   list(stdout = out %||% character(), stderr = err %||% character())
 }
 
+#' Check whether a directory is the taskr source package.
+#'
+#' Purpose:
+#' - Keep dashboard development launches from accidentally loading a different
+#'   R project just because the working directory has a `DESCRIPTION` file.
+#'
+#' Parameters:
+#' - `pkg_path`: Candidate package source directory.
+#'
+#' Returns:
+#' - `TRUE` when `pkg_path/DESCRIPTION` declares `Package: taskr` and the
+#'   directory contains plain `R/*.R` source files; otherwise `FALSE`.
+#'
+#' Assumptions and side effects:
+#' - Reads only the candidate `DESCRIPTION` file.
+#' - Does not load the package.
+#'
+#' @keywords internal
+dashboard_is_taskr_source_path <- function(pkg_path) {
+  if (!is.character(pkg_path) || length(pkg_path) != 1 || is.na(pkg_path) || !nzchar(pkg_path)) {
+    return(FALSE)
+  }
+
+  desc_path <- file.path(pkg_path, "DESCRIPTION")
+  if (!file.exists(desc_path)) {
+    return(FALSE)
+  }
+
+  desc <- tryCatch(
+    read.dcf(desc_path, fields = "Package"),
+    error = function(e) matrix(character(), nrow = 0, ncol = 1)
+  )
+  if (nrow(desc) < 1 || ncol(desc) < 1) {
+    return(FALSE)
+  }
+
+  if (!identical(as.character(desc[1, 1]), "taskr")) {
+    return(FALSE)
+  }
+
+  r_files <- list.files(file.path(pkg_path, "R"), pattern = "\\.R$", full.names = TRUE)
+  length(r_files) > 0
+}
+
+#' Find the local taskr source path for a dashboard child process.
+#'
+#' Purpose:
+#' - Prefer the current source checkout during development so dashboard changes
+#'   are available without reinstalling.
+#' - Return `""` when only an installed package is available, so the child
+#'   process uses `library(taskr)` instead of `pkgload::load_all()`.
+#'
+#' Returns:
+#' - `character(1)`: Valid taskr source path, or `""` when none is detected.
+#'
+#' Assumptions and side effects:
+#' - Checks `getwd()`, the loaded namespace path, and that path's parent.
+#' - Does not load or modify the package.
+#'
+#' @keywords internal
 dashboard_detect_pkg_path <- function() {
   wd_path <- normalizePath(getwd(), winslash = "/", mustWork = FALSE)
-  if (file.exists(file.path(wd_path, "DESCRIPTION"))) {
+  if (dashboard_is_taskr_source_path(wd_path)) {
     return(wd_path)
   }
 
   ns_path <- tryCatch(getNamespaceInfo("taskr", "path"), error = function(e) "")
   if (is.character(ns_path) && nzchar(ns_path)) {
     ns_path <- normalizePath(ns_path, winslash = "/", mustWork = FALSE)
-    if (file.exists(file.path(ns_path, "DESCRIPTION"))) {
+    if (dashboard_is_taskr_source_path(ns_path)) {
       return(ns_path)
     }
     parent_path <- dirname(ns_path)
-    if (file.exists(file.path(parent_path, "DESCRIPTION"))) {
+    if (dashboard_is_taskr_source_path(parent_path)) {
       return(parent_path)
     }
   }
@@ -84,6 +144,20 @@ dashboard_detect_pkg_path <- function() {
   ""
 }
 
+#' Stop the dashboard background process tracked by taskr.
+#'
+#' Purpose:
+#' - Clean up the Shiny dashboard process when the queue is reset, the package is
+#'   unloaded, or a dashboard must be relaunched with new control settings.
+#'
+#' Returns:
+#' - Invisibly returns `NULL`.
+#'
+#' Assumptions and side effects:
+#' - Kills the tracked dashboard process when it is still alive.
+#' - Clears dashboard process, URL, and port fields in `pkg_env`.
+#'
+#' @keywords internal
 stop_dashboard_background <- function() {
   proc <- pkg_env$dashboard_process %||% NULL
   if (dashboard_process_is_alive(proc)) {
@@ -95,6 +169,27 @@ stop_dashboard_background <- function() {
   invisible(NULL)
 }
 
+#' Start the dashboard in a background R process.
+#'
+#' Purpose:
+#' - Keep the user's main R session responsive while the Shiny dashboard polls
+#'   snapshot files written by the queue process.
+#'
+#' Parameters:
+#' - `open_viewer`: Whether to open the dashboard URL in the configured viewer.
+#' - `announce`: Whether to print the dashboard URL in the console.
+#' - `focus_existing`: Whether to reopen an already-running dashboard in the
+#'   viewer.
+#'
+#' Returns:
+#' - Invisibly returns the dashboard URL.
+#'
+#' Assumptions and side effects:
+#' - Starts a `callr` background process.
+#' - Starts the dashboard control server if needed.
+#' - Stores process and URL state in `pkg_env`.
+#'
+#' @keywords internal
 launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, focus_existing = FALSE) {
   if (!requireNamespace("callr", quietly = TRUE)) {
     stop("`callr` is required for non-blocking dashboard launch.")
@@ -151,7 +246,17 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
         }
       }
 
-      app_factory <- getFromNamespace("queue_dashboard_app", "taskr")
+      taskr_ns <- asNamespace("taskr")
+      if (!exists("queue_dashboard_app", envir = taskr_ns, inherits = FALSE)) {
+        stop(
+          "Cannot start dashboard background process: the loaded `taskr` namespace ",
+          "is incomplete. Internal dashboard function `queue_dashboard_app()` is ",
+          "missing. Restart R, reinstall or reload `taskr`, then try ",
+          "`library(taskr); launch_dashboard()` again.",
+          call. = FALSE
+        )
+      }
+      app_factory <- get("queue_dashboard_app", envir = taskr_ns, inherits = FALSE)
       shiny::runApp(
         app_factory(
           data_mode = "snapshot",
@@ -196,7 +301,7 @@ launch_dashboard_background <- function(open_viewer = TRUE, announce = TRUE, foc
       )
       warning(paste(msg, collapse = "\n"))
     } else {
-      warning("Dashboard started but fid not become reachable at ", url, " within 6 seconds.")
+      warning("Dashboard started but did not become reachable at ", url, " within 6 seconds.")
     }
     return(invisible(url))
   }
