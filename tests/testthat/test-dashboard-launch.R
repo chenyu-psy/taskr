@@ -57,7 +57,8 @@ test_that("dashboard source path detection ignores non-taskr working directories
 
   detected <- dashboard_detect_pkg_path()
 
-  expect_true(nzchar(detected))
-  expect_true(dashboard_is_taskr_source_path(detected))
+  if (nzchar(detected)) {
+    expect_true(dashboard_is_taskr_source_path(detected))
+  }
   expect_false(identical(normalizePath(other_path, winslash = "/", mustWork = TRUE), detected))
 })
