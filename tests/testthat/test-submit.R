@@ -27,7 +27,30 @@ test_that("submit_code auto-initializes queue when needed", {
   expect_true(pkg_env$scheduler$capacity$slots >= 1L)
 })
 
-test_that("submit_code enqueues with default output saving", {
+test_that("submit_code defaults to no result saving", {
+  skip_if_not_installed("callr")
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 2)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  taskr::submit_code(
+    expr = { 1 + 1 },
+    label = "expr_task",
+    resources = list(slots = 2L)
+  )
+
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  expect_equal(pkg_env$scheduler$next_id, 2L)
+  item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001", label = "expr_task")
+  expect_false(is.null(item))
+  expect_identical(item$id, "task_001")
+  expect_identical(item$label, "expr_task")
+  expect_identical(item$output, "none")
+  expect_false(item$save_result)
+  expect_null(item$result_path)
+})
+
+test_that("submit_code supports explicit output saving", {
   skip_if_not_installed("callr")
   taskr::shutdown_queue()
   taskr::init_queue(max_slots = 2)
@@ -41,11 +64,10 @@ test_that("submit_code enqueues with default output saving", {
   )
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
-  expect_equal(pkg_env$scheduler$next_id, 2L)
   item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001", label = "expr_task")
   expect_false(is.null(item))
-  expect_identical(item$id, "task_001")
-  expect_identical(item$label, "expr_task")
+
+  expect_identical(item$output, "all")
   expect_true(item$save_result)
   expect_identical(item$result_path, taskr:::task_tmpfile("task_001"))
 })
@@ -260,6 +282,27 @@ test_that("submit_task supports output = none", {
   item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001")
   expect_false(is.null(item))
 
+  expect_false(item$save_result)
+  expect_null(item$result_path)
+})
+
+test_that("submit_task defaults to no result saving", {
+  skip_if_not_installed("callr")
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 2)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  taskr::submit_task(
+    fun = function() 42,
+    args = list(),
+    resources = list(slots = 2L)
+  )
+
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001")
+  expect_false(is.null(item))
+
+  expect_identical(item$output, "none")
   expect_false(item$save_result)
   expect_null(item$result_path)
 })

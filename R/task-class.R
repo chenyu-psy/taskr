@@ -153,7 +153,7 @@ Task <- R6::R6Class(
           )
           self$set_status("failed")
           unregister_active_task(self$id)
-        } else if (!is.null(self$result_path) && file.exists(self$result_path)) {
+        } else if (task_output_is_complete(self$result_path)) {
           self$set_status("completed")
           unregister_active_task(self$id)
         } else {
@@ -167,7 +167,7 @@ Task <- R6::R6Class(
 
       if (identical(self$status_value, "running") && !is.null(session_state) &&
           session_state %in% c("idle", "finished")) {
-        if (!is.null(self$result_path) && file.exists(self$result_path)) {
+        if (task_output_is_complete(self$result_path)) {
           self$set_status("completed")
           unregister_active_task(self$id)
         } else {
@@ -186,7 +186,7 @@ Task <- R6::R6Class(
       }
 
       if (identical(self$status_value, "running")) {
-        if (!is.null(self$result_path) && file.exists(self$result_path)) {
+        if (task_output_is_complete(self$result_path)) {
           self$set_status("completed")
           unregister_active_task(self$id)
         } else {
@@ -373,6 +373,29 @@ Task <- R6::R6Class(
     }
   )
 )
+
+#' Check whether a finished task has the expected stored output.
+#'
+#' Purpose:
+#' - Treat tasks without result storage as complete when the child process
+#'   finished cleanly.
+#'
+#' Parameters:
+#' - `result_path`: `NULL` for `output = "none"`, otherwise the expected
+#'   result file path.
+#'
+#' Returns:
+#' - `logical(1)`: `TRUE` when no result file is expected or the expected file
+#'   exists.
+#'
+#' Assumptions and side effects:
+#' - Does not read the result file; it only checks whether completion criteria
+#'   for task bookkeeping are met.
+#'
+#' @keywords internal
+task_output_is_complete <- function(result_path) {
+  is.null(result_path) || file.exists(result_path)
+}
 
 #' Parse stdout text and extract taskr progress events.
 #'

@@ -54,7 +54,8 @@ submit_code(
     Sys.sleep(10)
     "completed"
   },
-  label = "demo_code"
+  label = "demo_code",
+  output = "all"
 )
 
 submit_task(
@@ -64,13 +65,18 @@ submit_task(
   },
   args = list(n = 10000),
   label = "demo_function",
-  resources = list(slots = 2L)
+  resources = list(slots = 2L),
+  output = "all"
 )
 ```
 
 `resources$slots` is checked against `max_slots`.  
 With `max_slots = 3`, a task requesting `slots = 2` can run, and leaves one
 remaining slot for other pending work.
+
+Tasks default to `output = "none"` so large objects are not copied into
+taskr's result storage. Use `output = "all"` only when you want to retrieve the
+returned value with `get_task_result()`.
 
 ## Step 3: Monitor Task State
 

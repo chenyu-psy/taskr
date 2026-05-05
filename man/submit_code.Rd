@@ -10,7 +10,7 @@ submit_code(
   priority = 0L,
   resources = list(slots = 1L),
   import = "auto",
-  output = "all"
+  output = "none"
 )
 }
 \arguments{
@@ -25,8 +25,9 @@ submit_code(
 \item{import}{Task context import mode. Use \code{"auto"} (default), \code{"none"},
 or \code{list(env = ..., packages = ..., workdir = ..., vars = ...)}.}
 
-\item{output}{Either \code{"all"} or \code{"none"}. \code{"none"} skips result file
-saving.}
+\item{output}{Either \code{"none"} or \code{"all"}. \code{"none"} skips result file
+saving and is the default. Use \code{"all"} when you need
+\code{get_task_result()} to return the expression value.}
 }
 \value{
 Invisibly returns \code{NULL}.
@@ -41,6 +42,6 @@ Purpose:
 init_queue(max_slots = 1)
 if (interactive() && requireNamespace("callr", quietly = TRUE)) {
   on.exit(shutdown_queue(), add = TRUE)
-  submit_code({ 1 + 1 }, label = "toy_expr")
+  submit_code({ 1 + 1 }, label = "toy_expr", output = "all")
 }
 }
