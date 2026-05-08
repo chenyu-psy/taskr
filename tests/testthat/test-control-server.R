@@ -35,6 +35,26 @@ make_control_server_item <- function(id, label, status) {
   )
 }
 
+make_control_server_running_task <- function() {
+  state <- new.env(parent = emptyenv())
+  state$cancelled <- FALSE
+
+  list(
+    error = NULL,
+    status = function() "running",
+    progress = function() NULL,
+    read_output = function() "",
+    read_error = function() "",
+    is_alive = function() !state$cancelled,
+    kill = function() {
+      state$cancelled <- TRUE
+      invisible(NULL)
+    },
+    elapsed = function() 0,
+    state = state
+  )
+}
+
 test_that("control server health endpoint returns running status", {
   handle_control_request <- getFromNamespace("handle_control_request", "taskr")
 
@@ -137,4 +157,79 @@ test_that("control server clean_finished endpoint removes finished records", {
   expect_identical(body$action, "clean_finished")
   expect_equal(body$removed, 2L)
   expect_length(pkg_env$scheduler$finished, 0)
+})
+
+test_that("control server remove endpoint removes one failed task", {
+  handle_control_request <- getFromNamespace("handle_control_request", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  pkg_env$control_token <- "control-token"
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(
+    task_control_020 = make_control_server_item("task_control_020", "failed", "failed"),
+    task_control_021 = make_control_server_item("task_control_021", "done", "completed")
+  )
+  pkg_env$scheduler$label_index <- list(
+    failed = "task_control_020",
+    done = "task_control_021"
+  )
+
+  res <- handle_control_request(make_control_req(
+    "/remove",
+    list(token = "control-token", task_id = "task_control_020")
+  ))
+  body <- jsonlite::fromJSON(res$body, simplifyVector = TRUE)
+
+  expect_equal(res$status, 200L)
+  expect_true(body$ok)
+  expect_identical(body$action, "remove")
+  expect_false("task_control_020" %in% names(pkg_env$scheduler$finished))
+  expect_true("task_control_021" %in% names(pkg_env$scheduler$finished))
+  expect_null(pkg_env$scheduler$label_index$failed)
+  expect_identical(pkg_env$scheduler$label_index$done, "task_control_021")
+})
+
+test_that("control server remove endpoint cancels and removes one queued task", {
+  handle_control_request <- getFromNamespace("handle_control_request", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  pkg_env$control_token <- "control-token"
+  keep_item <- make_control_server_item("task_control_031", "queued_keep", "queued")
+  keep_item$start_task <- function(item) make_control_server_running_task()
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$queue <- list(
+    make_control_server_item("task_control_030", "queued_remove", "queued"),
+    keep_item
+  )
+  pkg_env$scheduler$label_index <- list(
+    queued_remove = "task_control_030",
+    queued_keep = "task_control_031"
+  )
+
+  res <- handle_control_request(make_control_req(
+    "/remove",
+    list(token = "control-token", task_id = "task_control_030")
+  ))
+  body <- jsonlite::fromJSON(res$body, simplifyVector = TRUE)
+
+  remaining_ids <- names(pkg_env$scheduler$running %||% list())
+  remaining_ids <- c(remaining_ids, vapply(pkg_env$scheduler$queue, function(item) item$id, character(1)))
+  remaining_ids <- c(remaining_ids, names(pkg_env$scheduler$finished %||% list()))
+  expect_equal(res$status, 200L)
+  expect_true(body$ok)
+  expect_identical(body$action, "remove")
+  expect_false("task_control_030" %in% remaining_ids)
+  expect_true("task_control_031" %in% remaining_ids)
+  expect_null(pkg_env$scheduler$label_index$queued_remove)
+  expect_identical(pkg_env$scheduler$label_index$queued_keep, "task_control_031")
 })

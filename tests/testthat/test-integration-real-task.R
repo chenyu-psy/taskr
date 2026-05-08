@@ -35,6 +35,62 @@ test_that("integration: submit_code -> completed -> get_task_result", {
   expect_identical(get_task_result("int_submit_done"), 5L)
 })
 
+test_that("integration: default output completes without a result file", {
+  skip_if_not_installed("callr")
+  get_task_overview <- getFromNamespace("get_task_overview", "taskr")
+  get_task_result <- getFromNamespace("get_task_result", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  taskr::submit_code(
+    expr = { Sys.sleep(0.2); "large result not saved" },
+    label = "int_default_none",
+    resources = list(slots = 1L)
+  )
+
+  expect_true(wait_for_task_status(get_task_overview, "int_default_none", "completed", timeout = 15))
+  expect_warning(
+    expect_null(get_task_result("int_default_none")),
+    "output = \"none\""
+  )
+})
+
+test_that("integration: output none completes when user code saves an external result", {
+  skip_if_not_installed("callr")
+  get_task_overview <- getFromNamespace("get_task_overview", "taskr")
+  get_task_result <- getFromNamespace("get_task_result", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  external_path <- tempfile(fileext = ".rds")
+  on.exit({
+    taskr::shutdown_queue()
+    unlink(external_path)
+  }, add = TRUE)
+
+  taskr::submit_code(
+    expr = {
+      fit_summary <- list(model = "stan_like", draws = 100L)
+      saveRDS(fit_summary, Sys.getenv("TASKR_EXTERNAL_RESULT"))
+      fit_summary
+    },
+    label = "int_external_result_none",
+    resources = list(slots = 1L),
+    import = list(vars = list(TASKR_EXTERNAL_RESULT = external_path)),
+    output = "none"
+  )
+
+  expect_true(wait_for_task_status(get_task_overview, "int_external_result_none", "completed", timeout = 15))
+  expect_true(file.exists(external_path))
+  expect_identical(readRDS(external_path), list(model = "stan_like", draws = 100L))
+  expect_warning(
+    expect_null(get_task_result("int_external_result_none")),
+    "output = \"none\""
+  )
+})
+
 test_that("integration: submit_task output filtering works end-to-end", {
   skip_if_not_installed("callr")
   get_task_overview <- getFromNamespace("get_task_overview", "taskr")

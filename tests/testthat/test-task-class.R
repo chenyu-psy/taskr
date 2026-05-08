@@ -51,11 +51,12 @@ make_fake_io_process <- function(output = character(), error = character()) {
   )
 }
 
-make_fake_terminal_process <- function(alive = FALSE, error = character()) {
+make_fake_terminal_process <- function(alive = FALSE, error = character(), exit_status = NULL) {
   state <- new.env(parent = emptyenv())
   state$alive <- alive
   state$error <- error
   state$kill_calls <- 0L
+  state$exit_status <- exit_status
 
   list(
     is_alive = function() {
@@ -77,6 +78,9 @@ make_fake_terminal_process <- function(alive = FALSE, error = character()) {
       value <- state$error[[1]]
       state$error <- state$error[-1]
       value
+    },
+    get_exit_status = function() {
+      state$exit_status
     },
     state = state
   )
@@ -249,6 +253,21 @@ test_that("Task status becomes completed when the result file exists", {
   unlink(result_path)
 })
 
+test_that("Task status completes when no result file is expected", {
+  fake_process <- make_fake_terminal_process(alive = FALSE)
+  task <- taskr:::Task$new(
+    id = "task_no_output",
+    process = fake_process,
+    status = "running",
+    result_path = NULL
+  )
+  taskr:::register_active_task(task)
+
+  expect_equal(task$status(), "completed")
+  expect_false(exists("task_no_output", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
+  expect_null(task$error)
+})
+
 test_that("Task status becomes failed when the process exits without a result file", {
   fake_process <- make_fake_terminal_process(alive = FALSE, error = "boom from child\n")
   task <- taskr:::Task$new(
@@ -260,6 +279,23 @@ test_that("Task status becomes failed when the process exits without a result fi
 
   expect_equal(task$status(), "failed")
   expect_match(task$error, "boom from child")
+})
+
+test_that("Task status becomes failed when an output-none process exits with an error", {
+  fake_process <- make_fake_terminal_process(
+    alive = FALSE,
+    error = "child process failed\n",
+    exit_status = 1L
+  )
+  task <- taskr:::Task$new(
+    id = "task_output_none_failed",
+    process = fake_process,
+    status = "running",
+    result_path = NULL
+  )
+
+  expect_equal(task$status(), "failed")
+  expect_match(task$error, "child process failed")
 })
 
 test_that("Task status uses a fallback failure message when stderr is empty", {

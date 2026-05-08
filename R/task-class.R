@@ -153,7 +153,7 @@ Task <- R6::R6Class(
           )
           self$set_status("failed")
           unregister_active_task(self$id)
-        } else if (!is.null(self$result_path) && file.exists(self$result_path)) {
+        } else if (task_output_is_complete(self$result_path)) {
           self$set_status("completed")
           unregister_active_task(self$id)
         } else {
@@ -167,7 +167,7 @@ Task <- R6::R6Class(
 
       if (identical(self$status_value, "running") && !is.null(session_state) &&
           session_state %in% c("idle", "finished")) {
-        if (!is.null(self$result_path) && file.exists(self$result_path)) {
+        if (task_output_is_complete(self$result_path)) {
           self$set_status("completed")
           unregister_active_task(self$id)
         } else {
@@ -186,7 +186,12 @@ Task <- R6::R6Class(
       }
 
       if (identical(self$status_value, "running")) {
-        if (!is.null(self$result_path) && file.exists(self$result_path)) {
+        exit_status <- task_process_exit_status(self$process)
+        if (!is.null(exit_status) && !identical(exit_status, 0L)) {
+          self$error <- task_process_failure_message(self)
+          self$set_status("failed")
+          unregister_active_task(self$id)
+        } else if (task_output_is_complete(self$result_path)) {
           self$set_status("completed")
           unregister_active_task(self$id)
         } else {
@@ -374,6 +379,29 @@ Task <- R6::R6Class(
   )
 )
 
+#' Check whether a finished task has the expected stored output.
+#'
+#' Purpose:
+#' - Treat tasks without result storage as complete when the child process
+#'   finished cleanly.
+#'
+#' Parameters:
+#' - `result_path`: `NULL` for `output = "none"`, otherwise the expected
+#'   result file path.
+#'
+#' Returns:
+#' - `logical(1)`: `TRUE` when no result file is expected or the expected file
+#'   exists.
+#'
+#' Assumptions and side effects:
+#' - Does not read the result file; it only checks whether completion criteria
+#'   for task bookkeeping are met.
+#'
+#' @keywords internal
+task_output_is_complete <- function(result_path) {
+  is.null(result_path) || file.exists(result_path)
+}
+
 #' Parse stdout text and extract taskr progress events.
 #'
 #' Purpose:
@@ -501,6 +529,37 @@ task_process_pid <- function(process) {
   pid
 }
 
+#' Read one process exit status when the backend exposes it.
+#'
+#' Purpose:
+#' - Distinguish a successful background task from a child R process that exited
+#'   with an error before writing any taskr result file.
+#'
+#' Parameters:
+#' - `process`: Optional process-like object.
+#'
+#' Returns:
+#' - `integer(1)` for a known exit status, or `NULL` when the backend does not
+#'   report one yet.
+#'
+#' Assumptions and side effects:
+#' - Does not wait for the process. Call this only after liveness checks say the
+#'   process is no longer running.
+#'
+#' @keywords internal
+task_process_exit_status <- function(process) {
+  if (is.null(process) || is.null(process$get_exit_status) || !is.function(process$get_exit_status)) {
+    return(NULL)
+  }
+
+  status <- tryCatch(process$get_exit_status(), error = function(e) NULL)
+  if (is.null(status) || length(status) == 0 || is.na(status[[1]])) {
+    return(NULL)
+  }
+
+  as.integer(status[[1]])
+}
+
 #' Lookup process-group id for one PID.
 #'
 #' Purpose:
@@ -599,6 +658,10 @@ task_kill_process_group <- function(pgid, timeout_sec = 0.2) {
 #'
 #' @keywords internal
 task_process_failure_message <- function(task) {
+  if (!is.null(task$stderr_buffer) && nzchar(task$stderr_buffer)) {
+    return(trimws(task$stderr_buffer))
+  }
+
   stderr_text <- task$read_error()
   if (nzchar(stderr_text)) {
     return(trimws(stderr_text))

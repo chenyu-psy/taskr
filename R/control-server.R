@@ -159,6 +159,32 @@ control_cancel_task <- function(task_id) {
   )
 }
 
+control_remove_task <- function(task_id) {
+# Remove one task through the dashboard control server.
+#
+# Purpose:
+# - Let the background dashboard remove one task without clearing the whole
+#   queue or all finished records.
+#
+# Parameters:
+# - `task_id`: Task id to remove.
+#
+# Returns:
+# - List payload for the dashboard control response.
+#
+# Assumptions and side effects:
+# - `remove_task()` cancels queued/running tasks before removing their records.
+  validate_id_or_label(task_id)
+  remove_task(task_id)
+  write_dashboard_snapshot()
+  list(
+    ok = TRUE,
+    action = "remove",
+    task_id = task_id,
+    message = "Task removed."
+  )
+}
+
 control_clear_all_tasks <- function() {
   if (is.null(pkg_env$scheduler)) {
     return(list(
@@ -288,6 +314,14 @@ handle_control_request <- function(req) {
           stop("`task_id` is required.")
         }
         return(control_json_response(payload = control_cancel_task(task_id)))
+      }
+
+      if (identical(path, "/remove")) {
+        task_id <- as.character(payload$task_id %||% "")
+        if (!nzchar(task_id)) {
+          stop("`task_id` is required.")
+        }
+        return(control_json_response(payload = control_remove_task(task_id)))
       }
 
       if (identical(path, "/clear_all")) {
