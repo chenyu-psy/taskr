@@ -216,6 +216,135 @@ test_that("cancel_task validates lookup behavior", {
   expect_error(cancel_task("dup"), "More than one task matches")
 })
 
+test_that("remove_task removes one failed task and frees its label", {
+  remove_task <- getFromNamespace("remove_task", "taskr")
+  validate_unique_label <- getFromNamespace("validate_unique_label", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  failed_path <- tempfile(fileext = ".rds")
+  other_path <- tempfile(fileext = ".rds")
+  saveRDS("failed", failed_path)
+  saveRDS("other", other_path)
+
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(
+    task_040 = make_control_item("task_040", "failed_a", "failed", path = failed_path),
+    task_041 = make_control_item("task_041", "done_b", "completed", path = other_path)
+  )
+  pkg_env$scheduler$label_index <- list(
+    failed_a = "task_040",
+    done_b = "task_041"
+  )
+
+  remove_task("failed_a")
+
+  expect_false("task_040" %in% names(pkg_env$scheduler$finished))
+  expect_true("task_041" %in% names(pkg_env$scheduler$finished))
+  expect_false(file.exists(failed_path))
+  expect_true(file.exists(other_path))
+  expect_null(pkg_env$scheduler$label_index$failed_a)
+  expect_identical(pkg_env$scheduler$label_index$done_b, "task_041")
+  expect_silent(validate_unique_label(pkg_env$scheduler, "failed_a"))
+})
+
+test_that("remove_task removes completed and cancelled records without touching others", {
+  remove_task <- getFromNamespace("remove_task", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$finished <- list(
+    task_050 = make_control_item("task_050", "done_a", "completed"),
+    task_051 = make_control_item("task_051", "cancel_b", "cancelled"),
+    task_052 = make_control_item("task_052", "failed_c", "failed")
+  )
+  pkg_env$scheduler$label_index <- list(
+    done_a = "task_050",
+    cancel_b = "task_051",
+    failed_c = "task_052"
+  )
+
+  remove_task("task_050")
+  remove_task("cancel_b")
+
+  expect_false("task_050" %in% names(pkg_env$scheduler$finished))
+  expect_false("task_051" %in% names(pkg_env$scheduler$finished))
+  expect_true("task_052" %in% names(pkg_env$scheduler$finished))
+  expect_null(pkg_env$scheduler$label_index$done_a)
+  expect_null(pkg_env$scheduler$label_index$cancel_b)
+  expect_identical(pkg_env$scheduler$label_index$failed_c, "task_052")
+})
+
+test_that("remove_task cancels queued task and removes its terminal record", {
+  remove_task <- getFromNamespace("remove_task", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  queued_item <- make_control_item("task_060", "queued_remove", "queued")
+  other_item <- make_control_item("task_061", "queued_keep", "queued")
+  other_item$start_task <- function(item) make_killable_running_task()
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$queue <- list(queued_item, other_item)
+  pkg_env$scheduler$label_index <- list(
+    queued_remove = "task_060",
+    queued_keep = "task_061"
+  )
+
+  remove_task("queued_remove")
+
+  remaining_ids <- names(pkg_env$scheduler$running %||% list())
+  remaining_ids <- c(remaining_ids, vapply(pkg_env$scheduler$queue, function(item) item$id, character(1)))
+  remaining_ids <- c(remaining_ids, names(pkg_env$scheduler$finished %||% list()))
+  expect_false("task_060" %in% remaining_ids)
+  expect_true("task_061" %in% remaining_ids)
+  expect_false("task_060" %in% names(pkg_env$scheduler$finished))
+  expect_null(pkg_env$scheduler$label_index$queued_remove)
+  expect_identical(pkg_env$scheduler$label_index$queued_keep, "task_061")
+})
+
+test_that("remove_task cancels running task and removes its terminal record", {
+  remove_task <- getFromNamespace("remove_task", "taskr")
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  new_scheduler_state <- getFromNamespace("new_scheduler_state", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  task_obj <- make_killable_running_task()
+  running_item <- make_control_item("task_070", "running_remove", "running", task = task_obj)
+  done_item <- make_control_item("task_071", "done_keep", "completed")
+  pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
+  pkg_env$scheduler$running <- list(task_070 = running_item)
+  pkg_env$scheduler$finished <- list(task_071 = done_item)
+  pkg_env$scheduler$label_index <- list(
+    running_remove = "task_070",
+    done_keep = "task_071"
+  )
+
+  remove_task("running_remove")
+
+  expect_true(task_obj$state$cancelled)
+  expect_false("task_070" %in% names(pkg_env$scheduler$running))
+  expect_false("task_070" %in% names(pkg_env$scheduler$finished))
+  expect_true("task_071" %in% names(pkg_env$scheduler$finished))
+  expect_null(pkg_env$scheduler$label_index$running_remove)
+  expect_identical(pkg_env$scheduler$label_index$done_keep, "task_071")
+})
+
 test_that("clean_tasks removes completed records and deletes result files", {
   clean_tasks <- getFromNamespace("clean_tasks", "taskr")
   pkg_env <- getFromNamespace("pkg_env", "taskr")

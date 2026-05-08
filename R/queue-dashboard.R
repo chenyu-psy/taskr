@@ -70,7 +70,13 @@ dashboard_action_button_ui <- function(action, task_id, label, class) {
   )
 }
 
-running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE, chain_tab = NULL, progress_ratio = NULL) {
+running_task_card_ui <- function(
+    task,
+    expanded = FALSE,
+    allow_cancel = TRUE,
+    allow_remove = FALSE,
+    chain_tab = NULL,
+    progress_ratio = NULL) {
   if (is.null(progress_ratio) || length(progress_ratio) == 0 || is.na(progress_ratio)) {
     progress_ratio <- normalize_progress_fraction(task$progress, default_fraction = 0.5)
   } else {
@@ -151,6 +157,14 @@ running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE, ch
           label = "Cancel",
           class = "btn btn-sm btn-outline-danger"
         )
+      },
+      if (isTRUE(allow_remove)) {
+        dashboard_action_button_ui(
+          action = "remove",
+          task_id = task$id,
+          label = "Remove",
+          class = "btn btn-sm btn-outline-danger"
+        )
       }
     ),
     task_expand_block_ui(task, expanded = expanded)
@@ -162,7 +176,7 @@ running_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE, ch
 # - task: One-row data.frame for a queued task.
 # Returns:
 # - A `shiny::div` card tag.
-queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
+queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE, allow_remove = FALSE) {
   shiny::div(
     class = dashboard_card_class(task$status),
     `data-task-id` = as.character(task$id),
@@ -190,6 +204,14 @@ queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
           label = "Cancel",
           class = "btn btn-sm btn-outline-danger"
         )
+      },
+      if (isTRUE(allow_remove)) {
+        dashboard_action_button_ui(
+          action = "remove",
+          task_id = task$id,
+          label = "Remove",
+          class = "btn btn-sm btn-outline-danger"
+        )
       }
     ),
     task_expand_block_ui(task, expanded = expanded)
@@ -201,7 +223,7 @@ queued_task_card_ui <- function(task, expanded = FALSE, allow_cancel = TRUE) {
 # - task: One-row data.frame for a terminal task.
 # Returns:
 # - A `shiny::div` card tag.
-finished_task_card_ui <- function(task, expanded = FALSE) {
+finished_task_card_ui <- function(task, expanded = FALSE, allow_remove = TRUE) {
   shiny::div(
     class = dashboard_card_class(task$status),
     `data-task-id` = as.character(task$id),
@@ -222,7 +244,15 @@ finished_task_card_ui <- function(task, expanded = FALSE) {
         task_id = task$id,
         label = ifelse(expanded, "Collapse", "Details"),
         class = "btn btn-sm btn-outline-primary"
-      )
+      ),
+      if (isTRUE(allow_remove)) {
+        dashboard_action_button_ui(
+          action = "remove",
+          task_id = task$id,
+          label = "Remove",
+          class = "btn btn-sm btn-outline-danger"
+        )
+      }
     ),
     task_expand_block_ui(task, expanded = expanded)
   )
@@ -722,6 +752,7 @@ queue_dashboard_app <- function(
     !is.na(cancel_dir) &&
     nzchar(cancel_dir)
   can_control <- !isTRUE(read_only) || isTRUE(control_via_files) || isTRUE(control_via_server)
+  can_remove <- !isTRUE(read_only) || isTRUE(control_via_server)
   if (!isTRUE(read_only)) {
     ensure_queue_initialized()
   }
@@ -732,6 +763,7 @@ queue_dashboard_app <- function(
       selected_id <- shiny::reactiveVal(NULL)
       selected_panel_tracker <- shiny::reactiveVal(setNames(character(), character()))
       pending_running_cancel <- shiny::reactiveVal(NULL)
+      pending_running_remove <- shiny::reactiveVal(NULL)
       refresh_nonce <- shiny::reactiveVal(0L)
       finished_filter_status <- shiny::reactiveVal("completed")
       display_progress_cache <- new.env(parent = emptyenv())
@@ -765,6 +797,8 @@ queue_dashboard_app <- function(
 
         if (identical(action, "cancel")) {
           endpoint <- "/cancel"
+        } else if (identical(action, "remove")) {
+          endpoint <- "/remove"
         } else if (identical(action, "clean_finished")) {
           endpoint <- "/clean_finished"
         } else {
@@ -1090,6 +1124,7 @@ queue_dashboard_app <- function(
               },
               expanded = identical(task$id, expanded_task_id),
               allow_cancel = isTRUE(can_control),
+              allow_remove = FALSE,
               chain_tab = chain_by_id[[task_id]],
               progress_ratio = progress_by_id[[task_id]]
             )
@@ -1119,7 +1154,8 @@ queue_dashboard_app <- function(
                 task
               },
               expanded = identical(task$id, expanded_task_id),
-              allow_cancel = isTRUE(can_control)
+              allow_cancel = isTRUE(can_control),
+              allow_remove = FALSE
             )
           }
         )
@@ -1162,7 +1198,13 @@ queue_dashboard_app <- function(
         finished_filtered <- finished_all[finished_all$status == selected_filter, , drop = FALSE]
         dashboard_card_list_ui(
           finished_filtered,
-          renderer = function(task) finished_task_card_ui(task, expanded = identical(task$id, expanded_task_id))
+          renderer = function(task) {
+            finished_task_card_ui(
+              task,
+              expanded = identical(task$id, expanded_task_id),
+              allow_remove = isTRUE(can_remove)
+            )
+          }
         )
       })
 
@@ -1257,6 +1299,56 @@ queue_dashboard_app <- function(
         invisible(NULL)
       }
 
+      remove_card_task <- function(task_id) {
+        if (!isTRUE(can_control)) {
+          return(invisible(NULL))
+        }
+
+        current <- state_tasks()
+        if (nrow(current) == 0) {
+          current <- running_tasks()
+        }
+        row <- current[current$id == task_id, , drop = FALSE]
+        if (nrow(row) == 0) {
+          return(invisible(NULL))
+        }
+
+        if (identical(row$status[[1]], "running")) {
+          pending_running_remove(task_id)
+          shiny::showModal(shiny::modalDialog(
+            title = "Remove running task?",
+            sprintf("Task '%s' is running. Remove will cancel it first.", row$label[[1]]),
+            footer = shiny::tagList(
+              shiny::modalButton("Keep running"),
+              shiny::actionButton("confirm_running_remove", "Remove task", class = "btn btn-danger")
+            )
+          ))
+          return(invisible(NULL))
+        }
+
+        if (!can_issue_action(paste0("remove::", task_id))) {
+          return(invisible(NULL))
+        }
+
+        if (isTRUE(control_via_server)) {
+          send_control_request("remove", task_id = task_id)
+        } else if (isTRUE(control_via_files)) {
+          shiny::showNotification("Single-task removal requires the dashboard control server.", type = "error")
+        } else {
+          tryCatch(
+            {
+              remove_task(task_id)
+              shiny::showNotification("Task removed.", type = "message")
+            },
+            error = function(e) {
+              shiny::showNotification(conditionMessage(e), type = "error")
+            }
+          )
+        }
+        refresh_nonce(refresh_nonce() + 1L)
+        invisible(NULL)
+      }
+
       shiny::observeEvent(input$taskr_card_action, {
         event <- input$taskr_card_action
         action <- as.character(event$action %||% "")
@@ -1270,6 +1362,9 @@ queue_dashboard_app <- function(
         }
         if (identical(action, "cancel")) {
           return(cancel_card_task(task_id))
+        }
+        if (identical(action, "remove")) {
+          return(remove_card_task(task_id))
         }
         invisible(NULL)
       }, ignoreInit = TRUE)
@@ -1314,6 +1409,41 @@ queue_dashboard_app <- function(
           )
         }
         pending_running_cancel(NULL)
+        invisible(NULL)
+      }, ignoreInit = TRUE)
+
+      shiny::observeEvent(input$confirm_running_remove, {
+        if (!isTRUE(can_control)) {
+          return(invisible(NULL))
+        }
+        task_id <- pending_running_remove()
+        close_dashboard_modal()
+        if (is.null(task_id)) {
+          return(invisible(NULL))
+        }
+
+        if (!can_issue_action(paste0("remove::", task_id))) {
+          pending_running_remove(NULL)
+          return(invisible(NULL))
+        }
+
+        if (isTRUE(control_via_server)) {
+          send_control_request("remove", task_id = task_id)
+        } else if (isTRUE(control_via_files)) {
+          shiny::showNotification("Single-task removal requires the dashboard control server.", type = "error")
+        } else {
+          tryCatch(
+            {
+              remove_task(task_id)
+              shiny::showNotification("Task removed.", type = "message")
+            },
+            error = function(e) {
+              shiny::showNotification(conditionMessage(e), type = "error")
+            }
+          )
+        }
+        pending_running_remove(NULL)
+        refresh_nonce(refresh_nonce() + 1L)
         invisible(NULL)
       }, ignoreInit = TRUE)
 

@@ -2,7 +2,7 @@
 #
 # Purpose:
 # - Cancel queued/running tasks by id or label.
-# - Clean terminal task records and temporary result files.
+# - Remove one task or clean terminal task records and temporary result files.
 
 delete_task_result_file <- function(item) {
   path <- item$result_path %||% NULL
@@ -169,6 +169,85 @@ cancel_task <- function(id_or_label) {
     stop_scheduler()
   } else {
     start_scheduler()
+  }
+  write_dashboard_snapshot()
+
+  invisible(NULL)
+}
+
+remove_finished_task_record <- function(id) {
+# Remove one terminal task record from scheduler memory.
+#
+# Purpose:
+# - Keep single-task removal separate from bulk cleanup.
+#
+# Parameters:
+# - `id`: Internal task id for an item in `scheduler$finished`.
+#
+# Returns:
+# - The removed task item.
+#
+# Assumptions and side effects:
+# - Deletes the task result file when present.
+# - Removes only this task's label index entry.
+  item <- pkg_env$scheduler$finished[[id]] %||% NULL
+  if (is.null(item)) {
+    stop("Finished task `", id, "` was not found.")
+  }
+
+  delete_task_result_file(item)
+  pkg_env$scheduler <- remove_label_index_entry(pkg_env$scheduler, item)
+  pkg_env$scheduler$finished[[id]] <- NULL
+  item
+}
+
+#' Remove One Task by Id or Label
+#'
+#' Purpose:
+#' - Remove one task record from the queue monitor.
+#' - Cancel queued or running work before removing its terminal record.
+#'
+#' @param id_or_label Task id or label used to identify one task.
+#' @return Invisibly returns `NULL`.
+#' @examples
+#' init_queue(max_slots = 1)
+#' # remove_task("task_001")
+#' @export
+remove_task <- function(id_or_label) {
+  validate_id_or_label(id_or_label)
+
+  if (is.null(pkg_env$scheduler)) {
+    if (cancel_active_task_by_id(id_or_label)) {
+      write_dashboard_snapshot()
+      return(invisible(NULL))
+    }
+    stop("Queue is not initialized. Call `init_queue()` first.")
+  }
+
+  pkg_env$scheduler <- recycle_running_tasks(pkg_env$scheduler, now = Sys.time())
+  matched <- resolve_task_reference(pkg_env$scheduler, id_or_label)
+  if (is.null(matched)) {
+    if (cancel_active_task_by_id(id_or_label)) {
+      write_dashboard_snapshot()
+      return(invisible(NULL))
+    }
+    stop("Task not found for `id_or_label = ", id_or_label, "`.")
+  }
+
+  task_id <- matched$item$id
+  if (!identical(matched$bucket, "finished")) {
+    cancel_task(task_id)
+  }
+
+  pkg_env$scheduler <- recycle_running_tasks(pkg_env$scheduler, now = Sys.time())
+  matched <- resolve_task_reference(pkg_env$scheduler, task_id)
+  if (is.null(matched) || !identical(matched$bucket, "finished")) {
+    stop("Task `", task_id, "` could not be removed after cancellation.")
+  }
+
+  remove_finished_task_record(task_id)
+  if (!scheduler_has_work(pkg_env$scheduler)) {
+    stop_scheduler()
   }
   write_dashboard_snapshot()
 

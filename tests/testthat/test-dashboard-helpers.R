@@ -592,7 +592,48 @@ test_that("task card action buttons do not create duplicate Shiny input ids", {
   expect_false(grepl('id="cancel_task_001"', html, fixed = TRUE))
   expect_true(grepl('data-taskr-action="select"', html, fixed = TRUE))
   expect_true(grepl('data-taskr-action="cancel"', html, fixed = TRUE))
+  expect_false(grepl('data-taskr-action="remove"', html, fixed = TRUE))
   expect_true(grepl('data-taskr-task-id="task_001"', html, fixed = TRUE))
+})
+
+test_that("queued cards hide remove actions and finished cards expose them", {
+  skip_if_not_installed("shiny")
+
+  queued_task_card_ui <- getFromNamespace("queued_task_card_ui", "taskr")
+  finished_task_card_ui <- getFromNamespace("finished_task_card_ui", "taskr")
+
+  queued <- data.frame(
+    id = "task_queued",
+    label = "queued_demo",
+    status = "queued",
+    queue_wait = "2s",
+    priority = 1L,
+    submit_time_label = "04-11 00:00:00",
+    start_time_label = "-",
+    end_time_label = "-",
+    error = "",
+    stringsAsFactors = FALSE
+  )
+  finished <- data.frame(
+    id = "task_failed",
+    label = "failed_demo",
+    status = "failed",
+    priority = 1L,
+    submit_time_label = "04-11 00:00:00",
+    start_time_label = "04-11 00:00:01",
+    end_time_label = "04-11 00:00:02",
+    error = "boom",
+    stringsAsFactors = FALSE
+  )
+
+  queued_html <- as.character(queued_task_card_ui(queued[1, , drop = FALSE]))
+  finished_html <- as.character(finished_task_card_ui(finished[1, , drop = FALSE]))
+
+  expect_false(grepl('data-taskr-action="remove"', queued_html, fixed = TRUE))
+  expect_true(grepl('data-taskr-action="cancel"', queued_html, fixed = TRUE))
+  expect_true(grepl('data-taskr-action="remove"', finished_html, fixed = TRUE))
+  expect_true(grepl('data-taskr-task-id="task_queued"', queued_html, fixed = TRUE))
+  expect_true(grepl('data-taskr-task-id="task_failed"', finished_html, fixed = TRUE))
 })
 
 test_that("dashboard custom message handlers use Shiny-compatible signatures", {
