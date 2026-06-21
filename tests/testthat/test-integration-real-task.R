@@ -128,8 +128,10 @@ test_that("integration: submit_task output none completes without a result file"
 test_that("integration: brms cmdstanr output none completes after model file save", {
   skip_if_not_installed("callr")
   skip_if_not_installed("brms")
-  skip_if_not_installed("cmdstanr")
-  cmdstan_version <- cmdstanr::cmdstan_version(error_on_NA = FALSE)
+  if (!requireNamespace("cmdstanr", quietly = TRUE)) {
+    skip("cmdstanr is not installed.")
+  }
+  cmdstan_version <- get("cmdstan_version", envir = asNamespace("cmdstanr"))(error_on_NA = FALSE)
   if (length(cmdstan_version) == 0 || is.na(cmdstan_version)) {
     skip("CmdStan is not installed.")
   }
