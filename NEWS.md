@@ -14,6 +14,9 @@
   confirmation step before removing a running task.
 - Added a dashboard control-server `/remove` action so background dashboards can
   remove one task without clearing all finished records.
+- Refactored dashboard task cards to persist in the browser and update logs in
+  place, avoiding full card-list refreshes that could reset expanded console
+  scroll position.
 - Fixed `output = "none"` task completion when user code saves results outside
   taskr, such as Stan/CmdStan model fits written to local files.
 - Improved failed-task messages by keeping cached stderr available after queue

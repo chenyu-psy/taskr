@@ -241,9 +241,9 @@ dashboard_state_signature <- function(tab) {
 # Returns:
 # - Character scalar containing text length and tail text.
 # Notes:
-# - Running cards parse progress from logs, so log growth must invalidate the
-#   card UI. Keeping only the length plus tail avoids putting full logs into
-#   the reactive signature.
+# - Running cards parse progress from logs, so log growth must trigger
+#   existing-card DOM updates. Keeping only the length plus tail avoids putting
+#   full logs into the reactive signature.
 dashboard_log_progress_signature <- function(text, tail_chars = 500L) {
   text <- paste0(as.character(text %||% ""), collapse = "\n")
   n <- nchar(text, type = "chars", allowNA = FALSE, keepNA = FALSE)
@@ -253,19 +253,14 @@ dashboard_log_progress_signature <- function(text, tail_chars = 500L) {
   paste(n, tail_text, sep = ":")
 }
 
-# Build an event-style signature for running-card structure/content updates.
+# Build an event-style signature for existing running-card content updates.
 # Purpose:
-# - Trigger running-card UI updates when progress/message changes.
-# - Include a compact stdout/stderr signature because visible progress can be
-#   parsed from task logs even when task$progress is not updated.
-# Args:
-# - tab: Snapshot table from `extract_dashboard_snapshot()`.
-# Returns:
-# - Character scalar used by `reactivePoll(checkFunc=...)`.
-dashboard_running_signature <- function(tab) {
+# - Trigger custom-message DOM updates for progress parsed from logs without
+#   invalidating or replacing the persistent card nodes.
+dashboard_running_content_signature <- function(tab) {
   running <- tab[tab$status == "running", , drop = FALSE]
   if (nrow(running) == 0) {
-    return("running:empty")
+    return("running-content:empty")
   }
 
   key <- data.frame(
@@ -279,7 +274,7 @@ dashboard_running_signature <- function(tab) {
   key <- key[order(key$id), , drop = FALSE]
 
   paste(
-    "running",
+    "running-content",
     paste(apply(key, 1, function(row) paste(row, collapse = "|")), collapse = ";"),
     sep = ":"
   )
@@ -515,15 +510,32 @@ dashboard_card_class <- function(status) {
   ))
 }
 
-# Build deterministic UI button ids from task ids.
-# Args:
-# - prefix: Button type prefix (e.g., "select", "cancel").
-# - task_id: Original task id.
-# Returns:
-# - Sanitized UI id string.
-button_id_for_task <- function(prefix, task_id) {
-  safe_id <- gsub("[^A-Za-z0-9_]", "_", task_id)
-  paste0(prefix, "_", safe_id)
+dashboard_dom_suffix <- function(task_id) {
+  task_id <- tryCatch(normalize_task_id(task_id), error = function(e) NA_integer_)
+  if (is.na(task_id)) {
+    return("missing")
+  }
+  as.character(task_id)
+}
+
+dashboard_card_dom_id <- function(task_id) {
+  paste0("taskr-card-", dashboard_dom_suffix(task_id))
+}
+
+dashboard_log_dom_id <- function(task_id) {
+  paste0("taskr-log-", dashboard_dom_suffix(task_id))
+}
+
+dashboard_panel_dom_id <- function(panel) {
+  panel <- as.character(panel %||% "")
+  if (!panel %in% c("running", "pending", "finished")) {
+    panel <- "unknown"
+  }
+  paste0("taskr-", panel, "-cards")
+}
+
+dashboard_css_id_selector <- function(id) {
+  paste0("#", as.character(id))
 }
 
 # Build combined stdout/stderr tail text for details panel.
@@ -564,29 +576,6 @@ dashboard_log_text <- function(task_id, tail_n = 200L) {
     stderr_text,
     sep = "\n"
   )
-}
-
-# Resolve selected task row, with running-first fallback for first load.
-# Args:
-# - tab: Dashboard table.
-# - selected_id: Optional selected task id.
-# Returns:
-# - One-row data.frame, or NULL when no tasks are available.
-selected_task_row <- function(tab, selected_id = NULL) {
-  if (nrow(tab) == 0) {
-    return(NULL)
-  }
-
-  if (!is.null(selected_id) && selected_id %in% tab$id) {
-    return(tab[tab$id == selected_id, , drop = FALSE][1, , drop = FALSE])
-  }
-
-  running <- tab[tab$status == "running", , drop = FALSE]
-  if (nrow(running) > 0) {
-    return(running[1, , drop = FALSE])
-  }
-
-  tab[1, , drop = FALSE]
 }
 
 # Normalize one progress value into [0, 1] for dashboard bars.

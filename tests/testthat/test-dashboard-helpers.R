@@ -196,8 +196,8 @@ test_that("dashboard_state_signature ignores running progress/message-only chang
   )
 })
 
-test_that("dashboard_running_signature reacts to progress, message, and log changes", {
-  dashboard_running_signature <- getFromNamespace("dashboard_running_signature", "taskr")
+test_that("dashboard_running_content_signature reacts to visible running-card changes", {
+  dashboard_running_content_signature <- getFromNamespace("dashboard_running_content_signature", "taskr")
 
   now <- as.POSIXct("2026-04-10 12:00:00", tz = "UTC")
   tab_a <- data.frame(
@@ -220,8 +220,8 @@ test_that("dashboard_running_signature reacts to progress, message, and log chan
   tab_b$message <- "phase B"
 
   expect_false(identical(
-    dashboard_running_signature(tab_a),
-    dashboard_running_signature(tab_b)
+    dashboard_running_content_signature(tab_a),
+    dashboard_running_content_signature(tab_b)
   ))
 
   tab_c <- tab_a
@@ -229,13 +229,13 @@ test_that("dashboard_running_signature reacts to progress, message, and log chan
   tab_c$stderr <- "warn"
 
   expect_false(identical(
-    dashboard_running_signature(tab_a),
-    dashboard_running_signature(tab_c)
+    dashboard_running_content_signature(tab_a),
+    dashboard_running_content_signature(tab_c)
   ))
 })
 
-test_that("dashboard_running_signature reacts when log progress changes", {
-  dashboard_running_signature <- getFromNamespace("dashboard_running_signature", "taskr")
+test_that("dashboard_running_content_signature reacts when log progress changes", {
+  dashboard_running_content_signature <- getFromNamespace("dashboard_running_content_signature", "taskr")
 
   now <- as.POSIXct("2026-04-10 12:00:00", tz = "UTC")
   tab_a <- data.frame(
@@ -257,8 +257,8 @@ test_that("dashboard_running_signature reacts when log progress changes", {
   tab_b$stdout <- "Step 50 / 100"
 
   expect_false(identical(
-    dashboard_running_signature(tab_a),
-    dashboard_running_signature(tab_b)
+    dashboard_running_content_signature(tab_a),
+    dashboard_running_content_signature(tab_b)
   ))
 })
 
@@ -655,9 +655,29 @@ test_that("pending cards hide remove actions and finished cards expose them", {
   expect_true(grepl("Submitted: 04-11 00:00:00", queued_html, fixed = TRUE))
   expect_false(grepl("Priority:", queued_html, fixed = TRUE))
   expect_false(grepl("Waiting:", queued_html, fixed = TRUE))
+  expect_false(grepl("task-progress-track", queued_html, fixed = TRUE))
+  expect_false(grepl("chain-block", queued_html, fixed = TRUE))
   expect_true(grepl('data-taskr-action="remove"', finished_html, fixed = TRUE))
   expect_true(grepl('data-taskr-task-id="1"', queued_html, fixed = TRUE))
   expect_true(grepl('data-taskr-task-id="2"', finished_html, fixed = TRUE))
+  expect_true(grepl('id="taskr-card-1"', queued_html, fixed = TRUE))
+  expect_true(grepl('id="taskr-card-2"', finished_html, fixed = TRUE))
+  expect_false(grepl("task-progress-track", finished_html, fixed = TRUE))
+  expect_false(grepl("chain-block", finished_html, fixed = TRUE))
+})
+
+test_that("dashboard persistent card ids and selectors are deterministic", {
+  dashboard_card_dom_id <- getFromNamespace("dashboard_card_dom_id", "taskr")
+  dashboard_log_dom_id <- getFromNamespace("dashboard_log_dom_id", "taskr")
+  dashboard_panel_dom_id <- getFromNamespace("dashboard_panel_dom_id", "taskr")
+  dashboard_css_id_selector <- getFromNamespace("dashboard_css_id_selector", "taskr")
+
+  expect_identical(dashboard_card_dom_id(12L), "taskr-card-12")
+  expect_identical(dashboard_log_dom_id(12L), "taskr-log-12")
+  expect_identical(dashboard_panel_dom_id("running"), "taskr-running-cards")
+  expect_identical(dashboard_panel_dom_id("pending"), "taskr-pending-cards")
+  expect_identical(dashboard_panel_dom_id("finished"), "taskr-finished-cards")
+  expect_identical(dashboard_css_id_selector("taskr-card-12"), "#taskr-card-12")
 })
 
 test_that("dashboard custom message handlers use Shiny-compatible signatures", {
@@ -666,12 +686,17 @@ test_that("dashboard custom message handlers use Shiny-compatible signatures", {
   dashboard_scroll_js <- getFromNamespace("dashboard_scroll_js", "taskr")
   script <- as.character(dashboard_scroll_js())
 
+  expect_true(grepl("addCustomMessageHandler('taskr_reconcile_cards', function (msg)", script, fixed = TRUE))
+  expect_true(grepl("addCustomMessageHandler('taskr_update_cards', function (msg)", script, fixed = TRUE))
   expect_true(grepl("addCustomMessageHandler('taskr_update_logs', function (msg)", script, fixed = TRUE))
   expect_true(grepl("addCustomMessageHandler('taskr_focus_task', function (msg)", script, fixed = TRUE))
   expect_true(grepl("addCustomMessageHandler('taskr_force_close_modal', function (msg)", script, fixed = TRUE))
   expect_true(grepl("addCustomMessageHandler('taskr_control_request', function (msg)", script, fixed = TRUE))
-  expect_true(grepl("function saveAncestors(el)", script, fixed = TRUE))
-  expect_true(grepl("function initLogScroll(root)", script, fixed = TRUE))
+  expect_false(grepl("shiny:outputinvalidated", script, fixed = TRUE))
+  expect_false(grepl("function saveAncestors(el)", script, fixed = TRUE))
+  expect_false(grepl("function initLogScroll(root)", script, fixed = TRUE))
+  expect_true(grepl("String(msg.panel || '') === 'running' && msg.progress_html != null", script, fixed = TRUE))
+  expect_true(grepl("progress.innerHTML = ''", script, fixed = TRUE))
   expect_true(grepl("scrollLogToBottom(node)", script, fixed = TRUE))
   expect_true(grepl("window.__taskrLogStickToBottom", script, fixed = TRUE))
   expect_true(grepl("function logShouldStick(node)", script, fixed = TRUE))
