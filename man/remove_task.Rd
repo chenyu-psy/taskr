@@ -2,12 +2,12 @@
 % Please edit documentation in R/task-control.R
 \name{remove_task}
 \alias{remove_task}
-\title{Remove One Task by Id or Label}
+\title{Remove One or More Tasks by Id}
 \usage{
-remove_task(id_or_label)
+remove_task(id)
 }
 \arguments{
-\item{id_or_label}{Task id or label used to identify one task.}
+\item{id}{Numeric task id vector.}
 }
 \value{
 Invisibly returns \code{NULL}.
@@ -16,10 +16,10 @@ Invisibly returns \code{NULL}.
 Purpose:
 \itemize{
 \item Remove one task record from the queue monitor.
-\item Cancel queued or running work before removing its terminal record.
+\item Cancel pending or running work before removing its terminal record.
 }
 }
 \examples{
 init_queue(max_slots = 1)
-# remove_task("task_001")
+# remove_task(1)
 }

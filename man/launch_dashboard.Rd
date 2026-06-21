@@ -16,7 +16,7 @@ Invisibly returns the dashboard URL.
 \description{
 Purpose:
 \itemize{
-\item Open a visual monitoring dashboard for queued/running/terminal tasks.
+\item Open a visual monitoring dashboard for pending/running/terminal tasks.
 \item Provide lightweight control actions (\code{cancel_task}, \code{clean_tasks}) without
 changing the existing queue API.
 }

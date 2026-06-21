@@ -8,11 +8,10 @@
 new_scheduler_state <- function(max_slots = 1L) {
   list(
     capacity = list(slots = as.integer(max_slots)),
-    queue = list(),
+    pending = list(),
     running = list(),
     finished = list(),
     next_id = 1L,
-    label_index = list(),
     scheduler_handle = NULL,
     scheduler_interval = 1.0
   )

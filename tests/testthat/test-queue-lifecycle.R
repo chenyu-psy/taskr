@@ -1,4 +1,4 @@
-make_kill_tracking_task <- function(id = "task_run") {
+make_kill_tracking_task <- function(id = 1L) {
   state <- new.env(parent = emptyenv())
   state$cancelled <- FALSE
 
@@ -20,7 +20,7 @@ test_that("init_queue creates scheduler state with requested capacity", {
   expect_true(!is.null(pkg_env$scheduler))
   expect_equal(pkg_env$scheduler$capacity$slots, 3L)
   expect_equal(pkg_env$scheduler$next_id, 1L)
-  expect_length(pkg_env$scheduler$queue, 0)
+  expect_length(pkg_env$scheduler$pending, 0)
   expect_length(pkg_env$scheduler$running, 0)
   expect_length(pkg_env$scheduler$finished, 0)
 })
@@ -38,17 +38,17 @@ test_that("shutdown_queue clears scheduler state and temp files", {
 
   taskr::init_queue(max_slots = 1)
 
-  fake_task <- make_kill_tracking_task("task_001")
+  fake_task <- make_kill_tracking_task(1L)
   pkg_env$scheduler$running <- list(
-    task_001 = list(
-      id = "task_001",
+    "1" = list(
+      id = 1L,
       resources = list(slots = 1L),
       task = fake_task
     )
   )
   register_active_task(fake_task)
 
-  path <- task_tmpfile("task_001")
+  path <- task_tmpfile(1L)
   writeLines("tmp", con = path)
   expect_true(file.exists(path))
 

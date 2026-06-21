@@ -6,25 +6,25 @@
 #' Read Captured Logs for One Task
 #'
 #' Purpose:
-#' - Return buffered `stdout` and `stderr` for a task identified by id or label.
+#' - Return buffered `stdout` and `stderr` for a task identified by id.
 #'
-#' @param id_or_label Task id or label used to identify one task.
+#' @param id Numeric task id used to identify one task.
 #' @return A named list with `id`, `label`, `status`, `stdout`, and `stderr`.
 #' @examples
 #' init_queue(max_slots = 1)
-#' # get_task_log("task_001")
+#' # get_task_log(1)
 #' @export
-get_task_log <- function(id_or_label) {
-  validate_id_or_label(id_or_label)
+get_task_log <- function(id) {
+  id <- normalize_task_id(id)
 
   if (is.null(pkg_env$scheduler)) {
     stop("Queue is not initialized. Call `init_queue()` first.")
   }
 
   pkg_env$scheduler <- recycle_running_tasks(pkg_env$scheduler, now = Sys.time())
-  match <- resolve_task_reference(pkg_env$scheduler, id_or_label = id_or_label)
+  match <- resolve_task_reference(pkg_env$scheduler, id = id)
   if (is.null(match)) {
-    stop("Task not found for `id_or_label = ", id_or_label, "`.")
+    stop("Task not found for `id = ", id, "`.")
   }
 
   item <- match$item

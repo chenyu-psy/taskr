@@ -73,7 +73,7 @@ test_that("start_task_process validates that callr is available", {
   }
 
   expect_error(
-    taskr:::start_task_process(id = "task_100", expr = quote(1 + 1)),
+    taskr:::start_task_process(id = 100L, expr = quote(1 + 1)),
     "callr"
   )
 })
@@ -111,7 +111,7 @@ test_that("start_task_process launches a background task when callr is installed
 
   result_path <- tempfile(fileext = ".rds")
   task <- taskr:::start_task_process(
-    id = "task_101",
+    id = 101L,
     expr = quote({ Sys.sleep(0.2); 7L }),
     result_path = result_path
   )
@@ -137,7 +137,7 @@ test_that("start_task_process supports import, packages, workdir, and env", {
 
   result_path <- tempfile(fileext = ".rds")
   task <- taskr:::start_task_process(
-    id = "task_105",
+    id = 105L,
     expr = quote(list(
       imported_value = taskr_child_import_value,
       cwd = getwd(),
@@ -167,11 +167,11 @@ test_that("start_task_process supports import, packages, workdir, and env", {
 test_that("start_task_process uses task_tmpfile when result_path is omitted", {
   skip_if_not_installed("callr")
 
-  result_path <- taskr:::task_tmpfile("task_102")
+  result_path <- taskr:::task_tmpfile(102L)
   unlink(result_path)
 
   task <- taskr:::start_task_process(
-    id = "task_102",
+    id = 102L,
     expr = quote("saved in default path")
   )
 
@@ -187,7 +187,7 @@ test_that("start_task_process leaves no result file when the child errors", {
 
   result_path <- tempfile(fileext = ".rds")
   task <- taskr:::start_task_process(
-    id = "task_103",
+    id = 103L,
     expr = quote(stop("boom from child")),
     result_path = result_path
   )
@@ -203,7 +203,7 @@ test_that("Task kill stops a running child process before it writes a result", {
 
   result_path <- tempfile(fileext = ".rds")
   task <- taskr:::start_task_process(
-    id = "task_104",
+    id = 104L,
     expr = quote({ Sys.sleep(5); "too late" }),
     result_path = result_path
   )
@@ -224,7 +224,7 @@ test_that("Task kill stops child work from continuing after cancel", {
   marker_path <- tempfile(fileext = ".txt")
   result_path <- tempfile(fileext = ".rds")
   task <- taskr:::start_task_process(
-    id = "task_106",
+    id = 106L,
     expr = bquote({
       for (i in seq_len(40)) {
         cat(i, "\n", file = .(marker_path), append = TRUE)
@@ -300,7 +300,7 @@ test_that("Task kill falls back to process-group kill when direct kill does not 
     .package = "taskr"
   )
 
-  task <- taskr:::Task$new(id = "task_107", process = proc, status = "running")
+  task <- taskr:::Task$new(id = 107L, process = proc, status = "running")
   task$kill()
 
   expect_true(state$group_kill_called)

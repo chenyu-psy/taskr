@@ -1,12 +1,12 @@
 # Task Listing API (User-Facing)
 #
 # Purpose:
-# - Provide one query entrypoint for task records in queue/running/finished states.
+# - Provide one query entrypoint for task records in pending/running/finished states.
 # - Return a stable data.frame shape so downstream code can rely on columns.
 
 empty_task_table <- function() {
   data.frame(
-    id = character(),
+    id = integer(),
     label = character(),
     status = character(),
     progress = numeric(),
@@ -65,7 +65,7 @@ task_item_elapsed <- function(item, now = Sys.time()) {
 
 task_item_to_row <- function(item, now = Sys.time()) {
   data.frame(
-    id = as.character(item$id %||% NA_character_),
+    id = normalize_task_id(item$id %||% NA_integer_),
     label = as.character(item$label %||% NA_character_),
     status = as.character(item$status %||% NA_character_),
     progress = as.numeric(item$progress %||% NA_real_),
@@ -80,7 +80,7 @@ task_item_to_row <- function(item, now = Sys.time()) {
 }
 
 collect_scheduler_items <- function(state) {
-  c(state$queue %||% list(), unname(state$running %||% list()), unname(state$finished %||% list()))
+  c(state$pending %||% list(), unname(state$running %||% list()), unname(state$finished %||% list()))
 }
 
 sort_task_table <- function(tab) {
@@ -88,7 +88,7 @@ sort_task_table <- function(tab) {
     return(tab)
   }
 
-  status_levels <- c("completed", "running", "queued", "failed", "cancelled")
+  status_levels <- c("completed", "running", "pending", "failed", "cancelled")
   status_rank <- match(tab$status, status_levels)
   status_rank[is.na(status_rank)] <- length(status_levels) + 1L
 
@@ -107,13 +107,21 @@ validate_task_filter <- function(x, name) {
   invisible(NULL)
 }
 
+validate_task_id_filter <- function(id) {
+  if (is.null(id)) {
+    return(NULL)
+  }
+
+  normalize_task_ids(id, allow_multiple = TRUE, name = "id")
+}
+
 #' List Tasks in the Current Scheduler
 #'
 #' Purpose:
-#' - Return task records from queue, running, and completed states in one table.
+#' - Return task records from pending, running, and completed states in one table.
 #' - Optionally filter by `id`, `label`, and/or `status` using AND logic.
 #'
-#' @param id Optional character vector of task ids to include.
+#' @param id Optional numeric vector of task ids to include.
 #' @param label Optional character vector of labels to include.
 #' @param status Optional character vector of statuses to include.
 #' @return A `data.frame` with one row per matched task.
@@ -122,7 +130,7 @@ validate_task_filter <- function(x, name) {
 #' get_task_overview()
 #' @export
 get_task_overview <- function(id = NULL, label = NULL, status = NULL) {
-  validate_task_filter(id, "id")
+  id <- validate_task_id_filter(id)
   validate_task_filter(label, "label")
   validate_task_filter(status, "status")
 

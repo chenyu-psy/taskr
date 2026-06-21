@@ -87,24 +87,24 @@ make_fake_terminal_process <- function(alive = FALSE, error = character(), exit_
 }
 
 test_that("Task stores basic metadata", {
-  task <- taskr:::Task$new(id = "task_001")
+  task <- taskr:::Task$new(id = 1L)
 
-  expect_equal(task$id, "task_001")
-  expect_equal(task$status(), "queued")
+  expect_equal(task$id, 1L)
+  expect_equal(task$status(), "pending")
   expect_false(task$is_alive())
   expect_s3_class(task$created_at, "POSIXct")
 })
 
 test_that("Task validates id and status inputs", {
-  expect_error(taskr:::Task$new(id = ""), "single non-empty character string")
-  expect_error(taskr:::Task$new(id = NA_character_), "single non-empty character string")
-  expect_error(taskr:::Task$new(id = "task_001", status = "unknown"), "must be one of")
+  expect_error(taskr:::Task$new(id = ""), "positive integer")
+  expect_error(taskr:::Task$new(id = NA_character_), "positive integer")
+  expect_error(taskr:::Task$new(id = 1L, status = "unknown"), "must be one of")
 })
 
 test_that("Task uses the process handle to report liveness", {
   fake_process <- make_fake_process(alive = TRUE)
   task <- taskr:::Task$new(
-    id = "task_002",
+    id = 2L,
     process = fake_process,
     status = "running"
   )
@@ -117,7 +117,7 @@ test_that("Task uses the process handle to report liveness", {
 test_that("Task kill updates status and stops the process", {
   fake_process <- make_fake_process(alive = TRUE)
   task <- taskr:::Task$new(
-    id = "task_003",
+    id = 3L,
     process = fake_process,
     status = "running"
   )
@@ -137,7 +137,7 @@ test_that("Task kill errors if the process stays alive", {
     invisible(NULL)
   }
   task <- taskr:::Task$new(
-    id = "task_stubborn",
+    id = 12L,
     process = fake_process,
     status = "running"
   )
@@ -152,7 +152,7 @@ test_that("Task status keeps cancelled result from becoming completed", {
   result_path <- tempfile(fileext = ".rds")
   saveRDS(1L, result_path)
   task <- taskr:::Task$new(
-    id = "task_cancel_race",
+    id = 13L,
     process = fake_process,
     status = "running",
     result_path = result_path
@@ -164,7 +164,7 @@ test_that("Task status keeps cancelled result from becoming completed", {
 })
 
 test_that("Task elapsed returns a non-negative number", {
-  task <- taskr:::Task$new(id = "task_004")
+  task <- taskr:::Task$new(id = 4L)
 
   expect_type(task$elapsed(), "double")
   expect_gte(task$elapsed(), 0)
@@ -172,7 +172,7 @@ test_that("Task elapsed returns a non-negative number", {
 
 test_that("Task read_output keeps ordinary stdout text", {
   fake_process <- make_fake_io_process(output = c("hello\n", "world\n"))
-  task <- taskr:::Task$new(id = "task_005", process = fake_process, status = "running")
+  task <- taskr:::Task$new(id = 5L, process = fake_process, status = "running")
 
   first_chunk <- task$read_output()
   second_chunk <- task$read_output()
@@ -192,7 +192,7 @@ test_that("Task read_output parses tagged progress events", {
     "\nafter\n"
   )
   fake_process <- make_fake_io_process(output = progress_line)
-  task <- taskr:::Task$new(id = "task_006", process = fake_process, status = "running")
+  task <- taskr:::Task$new(id = 6L, process = fake_process, status = "running")
 
   chunk <- task$read_output()
   progress <- task$progress()
@@ -214,7 +214,7 @@ test_that("Task read_output keeps the latest progress event", {
     "##/TASKR_PROGRESS##"
   )
   fake_process <- make_fake_io_process(output = progress_line)
-  task <- taskr:::Task$new(id = "task_007", process = fake_process, status = "running")
+  task <- taskr:::Task$new(id = 7L, process = fake_process, status = "running")
 
   task$read_output()
   progress <- task$progress()
@@ -225,7 +225,7 @@ test_that("Task read_output keeps the latest progress event", {
 
 test_that("Task read_error appends stderr text", {
   fake_process <- make_fake_io_process(error = c("warn 1\n", "warn 2\n"))
-  task <- taskr:::Task$new(id = "task_008", process = fake_process, status = "running")
+  task <- taskr:::Task$new(id = 8L, process = fake_process, status = "running")
 
   first_chunk <- task$read_error()
   second_chunk <- task$read_error()
@@ -240,7 +240,7 @@ test_that("Task status becomes completed when the result file exists", {
   saveRDS("completed", result_path)
   fake_process <- make_fake_terminal_process(alive = FALSE)
   task <- taskr:::Task$new(
-    id = "task_009",
+    id = 9L,
     process = fake_process,
     status = "running",
     result_path = result_path
@@ -248,7 +248,7 @@ test_that("Task status becomes completed when the result file exists", {
   taskr:::register_active_task(task)
 
   expect_equal(task$status(), "completed")
-  expect_false(exists("task_009", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
+  expect_false(exists("9", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
 
   unlink(result_path)
 })
@@ -256,7 +256,7 @@ test_that("Task status becomes completed when the result file exists", {
 test_that("Task status completes when no result file is expected", {
   fake_process <- make_fake_terminal_process(alive = FALSE)
   task <- taskr:::Task$new(
-    id = "task_no_output",
+    id = 14L,
     process = fake_process,
     status = "running",
     result_path = NULL
@@ -264,14 +264,14 @@ test_that("Task status completes when no result file is expected", {
   taskr:::register_active_task(task)
 
   expect_equal(task$status(), "completed")
-  expect_false(exists("task_no_output", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
+  expect_false(exists("14", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
   expect_null(task$error)
 })
 
 test_that("Task status becomes failed when the process exits without a result file", {
   fake_process <- make_fake_terminal_process(alive = FALSE, error = "boom from child\n")
   task <- taskr:::Task$new(
-    id = "task_010",
+    id = 10L,
     process = fake_process,
     status = "running",
     result_path = tempfile(fileext = ".rds")
@@ -288,7 +288,7 @@ test_that("Task status becomes failed when an output-none process exits with an 
     exit_status = 1L
   )
   task <- taskr:::Task$new(
-    id = "task_output_none_failed",
+    id = 15L,
     process = fake_process,
     status = "running",
     result_path = NULL
@@ -301,7 +301,7 @@ test_that("Task status becomes failed when an output-none process exits with an 
 test_that("Task status uses a fallback failure message when stderr is empty", {
   fake_process <- make_fake_terminal_process(alive = FALSE)
   task <- taskr:::Task$new(
-    id = "task_011",
+    id = 11L,
     process = fake_process,
     status = "running",
     result_path = tempfile(fileext = ".rds")

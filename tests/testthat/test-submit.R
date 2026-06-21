@@ -1,5 +1,5 @@
 find_task_in_scheduler <- function(state, id = NULL, label = NULL) {
-  items <- c(state$queue %||% list(), unname(state$running %||% list()), unname(state$finished %||% list()))
+  items <- c(state$pending %||% list(), unname(state$running %||% list()), unname(state$finished %||% list()))
   if (length(items) == 0) {
     return(NULL)
   }
@@ -41,9 +41,9 @@ test_that("submit_code defaults to no result saving", {
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
   expect_equal(pkg_env$scheduler$next_id, 2L)
-  item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001", label = "expr_task")
+  item <- find_task_in_scheduler(pkg_env$scheduler, id = 1L, label = "expr_task")
   expect_false(is.null(item))
-  expect_identical(item$id, "task_001")
+  expect_identical(item$id, 1L)
   expect_identical(item$label, "expr_task")
   expect_identical(item$output, "none")
   expect_false(item$save_result)
@@ -64,12 +64,12 @@ test_that("submit_code supports explicit output saving", {
   )
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
-  item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001", label = "expr_task")
+  item <- find_task_in_scheduler(pkg_env$scheduler, id = 1L, label = "expr_task")
   expect_false(is.null(item))
 
   expect_identical(item$output, "all")
   expect_true(item$save_result)
-  expect_identical(item$result_path, taskr:::task_tmpfile("task_001"))
+  expect_identical(item$result_path, taskr:::task_tmpfile(1L))
 })
 
 test_that("submit_code supports output = none", {
@@ -85,7 +85,7 @@ test_that("submit_code supports output = none", {
   )
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
-  item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001")
+  item <- find_task_in_scheduler(pkg_env$scheduler, id = 1L)
   expect_false(is.null(item))
 
   expect_false(item$save_result)
@@ -108,7 +108,7 @@ test_that("submit_code import = auto captures globals from expression", {
   )
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
-  item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001")
+  item <- find_task_in_scheduler(pkg_env$scheduler, id = 1L)
   expect_false(is.null(item))
 
   expect_true("taskr_auto_import_x" %in% item$context$env)
@@ -129,7 +129,7 @@ test_that("submit_code import = none disables context injection", {
   )
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
-  item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001")
+  item <- find_task_in_scheduler(pkg_env$scheduler, id = 1L)
   expect_false(is.null(item))
 
   expect_identical(item$context$env, character())
@@ -158,7 +158,7 @@ test_that("submit_code import list supports explicit context fields", {
   )
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
-  item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001")
+  item <- find_task_in_scheduler(pkg_env$scheduler, id = 1L)
   expect_false(is.null(item))
 
   expect_identical(item$context$env, "df")
@@ -176,7 +176,7 @@ test_that("submit_code validates output values", {
   expect_error(taskr::submit_code(expr = { 1 }, output = c("all", "none")), "one of: \"all\" or \"none\"")
 })
 
-test_that("submit_code enforces unique labels", {
+test_that("submit_code allows repeated labels", {
   skip_if_not_installed("callr")
   taskr::shutdown_queue()
   taskr::init_queue(max_slots = 2)
@@ -188,14 +188,16 @@ test_that("submit_code enforces unique labels", {
     resources = list(slots = 2L)
   )
 
-  expect_error(
-    taskr::submit_code(
-      expr = { 2 + 2 },
-      label = "dup_label",
-      resources = list(slots = 2L)
-    ),
-    "already exists"
+  taskr::submit_code(
+    expr = { 2 + 2 },
+    label = "dup_label",
+    resources = list(slots = 2L)
   )
+
+  pkg_env <- getFromNamespace("pkg_env", "taskr")
+  items <- c(pkg_env$scheduler$pending %||% list(), unname(pkg_env$scheduler$running %||% list()))
+  expect_identical(sort(vapply(items, `[[`, integer(1), "id")), c(1L, 2L))
+  expect_true(all(vapply(items, function(item) identical(item$label, "dup_label"), logical(1))))
 })
 
 test_that("submit_code rejects resource requests above queue capacity", {
@@ -212,7 +214,7 @@ test_that("submit_code rejects resource requests above queue capacity", {
   )
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
-  expect_length(pkg_env$scheduler$queue, 0)
+  expect_length(pkg_env$scheduler$pending, 0)
 })
 
 test_that("build_submit_call_expr filters selected fields", {
@@ -256,10 +258,10 @@ test_that("submit_task accepts field filtering output", {
   )
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
-  item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001", label = "call_filter")
+  item <- find_task_in_scheduler(pkg_env$scheduler, id = 1L, label = "call_filter")
   expect_false(is.null(item))
 
-  expect_identical(item$id, "task_001")
+  expect_identical(item$id, 1L)
   expect_identical(item$output, "keep")
   expect_true(item$save_result)
   expect_identical(item$label, "call_filter")
@@ -279,7 +281,7 @@ test_that("submit_task supports output = none", {
   )
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
-  item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001")
+  item <- find_task_in_scheduler(pkg_env$scheduler, id = 1L)
   expect_false(is.null(item))
 
   expect_false(item$save_result)
@@ -299,7 +301,7 @@ test_that("submit_task defaults to no result saving", {
   )
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
-  item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001")
+  item <- find_task_in_scheduler(pkg_env$scheduler, id = 1L)
   expect_false(is.null(item))
 
   expect_identical(item$output, "none")
@@ -324,7 +326,7 @@ test_that("submit_task import = auto can capture globals from function body", {
   )
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
-  item <- find_task_in_scheduler(pkg_env$scheduler, id = "task_001")
+  item <- find_task_in_scheduler(pkg_env$scheduler, id = 1L)
   expect_false(is.null(item))
 
   expect_true("taskr_auto_fun_global" %in% item$context$env)

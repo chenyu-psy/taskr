@@ -7,7 +7,7 @@
 get_task_overview(id = NULL, label = NULL, status = NULL)
 }
 \arguments{
-\item{id}{Optional character vector of task ids to include.}
+\item{id}{Optional numeric vector of task ids to include.}
 
 \item{label}{Optional character vector of labels to include.}
 
@@ -19,7 +19,7 @@ A \code{data.frame} with one row per matched task.
 \description{
 Purpose:
 \itemize{
-\item Return task records from queue, running, and completed states in one table.
+\item Return task records from pending, running, and completed states in one table.
 \item Optionally filter by \code{id}, \code{label}, and/or \code{status} using AND logic.
 }
 }

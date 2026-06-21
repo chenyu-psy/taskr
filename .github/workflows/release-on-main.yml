@@ -29,27 +29,51 @@ jobs:
           echo "PKG_NAME=${PKG_NAME}" >> "$GITHUB_ENV"
           echo "PKG_VERSION=${PKG_VERSION}" >> "$GITHUB_ENV"
 
-      - name: Build source package
-        shell: bash
-        run: R CMD build .
-
-      - name: Create and push tag if needed
+      - name: Check release tag
         shell: bash
         run: |
           TAG="v${PKG_VERSION}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag ${TAG} already exists."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag "$TAG"
-            git push origin "$TAG"
+            echo "Tag ${TAG} already exists. Bump DESCRIPTION Version before publishing a new release."
+            exit 1
           fi
+
+      - name: Extract release notes from NEWS
+        shell: bash
+        run: |
+          HEADER="# ${PKG_NAME} ${PKG_VERSION}"
+          NOTES_FILE="${RUNNER_TEMP}/release-notes.md"
+
+          awk -v header="$HEADER" '
+            $0 == header { in_section = 1; next }
+            in_section && /^# / { exit }
+            in_section { print }
+          ' NEWS.md > "$NOTES_FILE"
+
+          if [ ! -s "$NOTES_FILE" ]; then
+            echo "NEWS.md does not contain a release section for ${HEADER}."
+            exit 1
+          fi
+
+          echo "RELEASE_NOTES=${NOTES_FILE}" >> "$GITHUB_ENV"
+
+      - name: Build source package
+        shell: bash
+        run: R CMD build .
+
+      - name: Create and push tag
+        shell: bash
+        run: |
+          TAG="v${PKG_VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.PKG_VERSION }}
           name: ${{ env.PKG_NAME }} v${{ env.PKG_VERSION }}
-          generate_release_notes: true
+          body_path: ${{ env.RELEASE_NOTES }}
           files: ./*.tar.gz
