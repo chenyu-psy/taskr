@@ -7,6 +7,7 @@
 build_task_expr(
   expr,
   result_path = NULL,
+  status_path = NULL,
   imports = list(),
   packages = NULL,
   workdir = NULL,
@@ -30,6 +31,8 @@ Parameters:
 \itemize{
 \item \code{expr}: User expression to run in the child process.
 \item \code{result_path}: Optional file path where the child should save its result.
+\item \code{status_path}: Optional file path where the child should write task
+lifecycle status markers.
 \item \code{imports}: Named list of objects to assign into the child global
 environment before evaluating \code{expr}.
 \item \code{packages}: Optional character vector of package names to load in the
@@ -47,6 +50,7 @@ Assumptions and side effects:
 \itemize{
 \item The expression is evaluated in the child process, not in the caller.
 \item When \code{result_path} is provided, the child writes one \code{.rds} file.
+\item When \code{status_path} is provided, the child writes one status marker file.
 \item Package loading, working directory changes, and environment variable
 updates happen in the child process only.
 }

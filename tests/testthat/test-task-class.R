@@ -86,6 +86,12 @@ make_fake_terminal_process <- function(alive = FALSE, error = character(), exit_
   )
 }
 
+write_task_status_marker <- function(status, message = NULL) {
+  path <- tempfile(fileext = ".rds")
+  saveRDS(list(status = status, message = message, time = Sys.time()), path)
+  path
+}
+
 test_that("Task stores basic metadata", {
   task <- taskr:::Task$new(id = 1L)
 
@@ -237,13 +243,15 @@ test_that("Task read_error appends stderr text", {
 
 test_that("Task status becomes completed when the result file exists", {
   result_path <- tempfile(fileext = ".rds")
+  status_path <- write_task_status_marker("completed")
   saveRDS("completed", result_path)
   fake_process <- make_fake_terminal_process(alive = FALSE)
   task <- taskr:::Task$new(
     id = 9L,
     process = fake_process,
     status = "running",
-    result_path = result_path
+    result_path = result_path,
+    status_path = status_path
   )
   taskr:::register_active_task(task)
 
@@ -251,25 +259,47 @@ test_that("Task status becomes completed when the result file exists", {
   expect_false(exists("9", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
 
   unlink(result_path)
+  unlink(status_path)
 })
 
 test_that("Task status completes when no result file is expected", {
+  status_path <- write_task_status_marker("completed")
   fake_process <- make_fake_terminal_process(alive = FALSE)
   task <- taskr:::Task$new(
     id = 14L,
     process = fake_process,
     status = "running",
-    result_path = NULL
+    result_path = NULL,
+    status_path = status_path
   )
   taskr:::register_active_task(task)
 
   expect_equal(task$status(), "completed")
   expect_false(exists("14", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
   expect_null(task$error)
+
+  unlink(status_path)
 })
 
-test_that("Task status becomes failed when the process exits without a result file", {
-  fake_process <- make_fake_terminal_process(alive = FALSE, error = "boom from child\n")
+test_that("Task status becomes failed when marker records an error", {
+  status_path <- write_task_status_marker("failed", "marker failure")
+  fake_process <- make_fake_terminal_process(alive = FALSE)
+  task <- taskr:::Task$new(
+    id = 16L,
+    process = fake_process,
+    status = "running",
+    result_path = NULL,
+    status_path = status_path
+  )
+
+  expect_equal(task$status(), "failed")
+  expect_match(task$error, "marker failure")
+
+  unlink(status_path)
+})
+
+test_that("Task status becomes failed when the process exits without a terminal marker", {
+  fake_process <- make_fake_terminal_process(alive = FALSE)
   task <- taskr:::Task$new(
     id = 10L,
     process = fake_process,
@@ -278,7 +308,7 @@ test_that("Task status becomes failed when the process exits without a result fi
   )
 
   expect_equal(task$status(), "failed")
-  expect_match(task$error, "boom from child")
+  expect_match(task$error, "subprocess died unexpectedly")
 })
 
 test_that("Task status becomes failed when an output-none process exits with an error", {

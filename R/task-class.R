@@ -19,11 +19,11 @@ Task <- R6::R6Class(
     stderr_buffer = NULL,
     progress_state = NULL,
     result_path = NULL,
+    status_path = NULL,
     error = NULL,
-    call_result = NULL,
     cancel_requested = FALSE,
 
-    initialize = function(id, process = NULL, status = "pending", result_path = NULL) {
+    initialize = function(id, process = NULL, status = "pending", result_path = NULL, status_path = NULL) {
 # Create a new internal task object.
 #
 # Purpose:
@@ -59,8 +59,8 @@ Task <- R6::R6Class(
       self$stderr_buffer <- ""
       self$progress_state <- NULL
       self$result_path <- result_path
+      self$status_path <- status_path
       self$error <- NULL
-      self$call_result <- NULL
       self$cancel_requested <- FALSE
 
       if (identical(status, "running")) {
@@ -136,67 +136,52 @@ Task <- R6::R6Class(
         return(self$status_value)
       }
 
-      task_update_call_result(self)
-
-      session_state <- NULL
-      if (!is.null(self$process$get_state) && is.function(self$process$get_state)) {
-        session_state <- self$process$get_state()
-      }
-
-      if (identical(self$status_value, "running") && !is.null(self$call_result)) {
-        if (!is.null(self$call_result$error)) {
-          self$error <- task_result_error_message(
-            error = self$call_result$error,
-            stderr_text = self$stderr_buffer
-          )
-          self$set_status("failed")
-          unregister_active_task(self$id)
-        } else if (task_output_is_complete(self$result_path)) {
+      marker <- task_read_status_marker(self$status_path)
+      if (identical(self$status_value, "running") && !is.null(marker)) {
+        if (identical(marker$status, "completed")) {
           self$set_status("completed")
           unregister_active_task(self$id)
-        } else {
-          self$error <- task_process_failure_message(self)
-          self$set_status("failed")
-          unregister_active_task(self$id)
+          return(self$status_value)
         }
 
-        return(self$status_value)
-      }
-
-      if (identical(self$status_value, "running") && !is.null(session_state) &&
-          session_state %in% c("idle", "finished")) {
-        if (task_output_is_complete(self$result_path)) {
-          self$set_status("completed")
-          unregister_active_task(self$id)
-        } else {
-          if (is.null(self$error)) {
-            self$error <- task_process_failure_message(self)
+        if (identical(marker$status, "failed")) {
+          self$error <- marker$message
+          if (!nzchar(self$error)) {
+            self$error <- "Task failed."
           }
           self$set_status("failed")
           unregister_active_task(self$id)
+          return(self$status_value)
         }
-
-        return(self$status_value)
       }
 
       if (self$is_alive()) {
         return("running")
       }
 
-      if (identical(self$status_value, "running")) {
-        exit_status <- task_process_exit_status(self$process)
-        if (!is.null(exit_status) && !identical(exit_status, 0L)) {
-          self$error <- task_process_failure_message(self)
-          self$set_status("failed")
-          unregister_active_task(self$id)
-        } else if (task_output_is_complete(self$result_path)) {
+      marker <- task_read_status_marker(self$status_path)
+      if (identical(self$status_value, "running") && !is.null(marker)) {
+        if (identical(marker$status, "completed")) {
           self$set_status("completed")
           unregister_active_task(self$id)
-        } else {
-          self$error <- task_process_failure_message(self)
+          return(self$status_value)
+        }
+
+        if (identical(marker$status, "failed")) {
+          self$error <- marker$message
+          if (!nzchar(self$error)) {
+            self$error <- "Task failed."
+          }
           self$set_status("failed")
           unregister_active_task(self$id)
+          return(self$status_value)
         }
+      }
+
+      if (identical(self$status_value, "running")) {
+        self$error <- task_process_failure_message(self)
+        self$set_status("failed")
+        unregister_active_task(self$id)
       }
 
       self$status_value
@@ -377,27 +362,26 @@ Task <- R6::R6Class(
   )
 )
 
-#' Check whether a finished task has the expected stored output.
-#'
-#' Purpose:
-#' - Treat tasks without result storage as complete when the child process
-#'   finished cleanly.
-#'
-#' Parameters:
-#' - `result_path`: `NULL` for `output = "none"`, otherwise the expected
-#'   result file path.
-#'
-#' Returns:
-#' - `logical(1)`: `TRUE` when no result file is expected or the expected file
-#'   exists.
-#'
-#' Assumptions and side effects:
-#' - Does not read the result file; it only checks whether completion criteria
-#'   for task bookkeeping are met.
-#'
-#' @keywords internal
-task_output_is_complete <- function(result_path) {
-  is.null(result_path) || file.exists(result_path)
+task_read_status_marker <- function(status_path) {
+  if (is.null(status_path) || !is.character(status_path) || length(status_path) != 1 ||
+      is.na(status_path) || !nzchar(status_path) || !file.exists(status_path)) {
+    return(NULL)
+  }
+
+  marker <- tryCatch(readRDS(status_path), error = function(e) NULL)
+  if (!is.list(marker) || is.null(marker$status)) {
+    return(NULL)
+  }
+
+  status <- as.character(marker$status %||% "")
+  if (!status %in% c("running", "completed", "failed")) {
+    return(NULL)
+  }
+
+  list(
+    status = status,
+    message = as.character(marker$message %||% "")
+  )
 }
 
 #' Parse stdout text and extract taskr progress events.
@@ -666,116 +650,4 @@ task_process_failure_message <- function(task) {
   }
 
   "subprocess died unexpectedly"
-}
-
-#' Update a task with any finished call result from a persistent session.
-#'
-#' Purpose:
-#' - Detect when a `callr::r_session` call has completed even though the
-#'   underlying R process remains alive and reusable.
-#'
-#' Parameters:
-#' - `task`: Internal `Task` object.
-#'
-#' Returns:
-#' - Invisibly returns the task object.
-#'
-#' @keywords internal
-task_update_call_result <- function(task) {
-  if (!identical(task$status_value, "running")) {
-    return(invisible(task))
-  }
-
-  process <- task$process
-  if (is.null(process)) {
-    return(invisible(task))
-  }
-
-  if (!is.null(task$call_result)) {
-    return(invisible(task))
-  }
-
-  if (!is.null(process$read) && is.function(process$read)) {
-    repeat {
-      event <- process$read()
-      if (is.null(event)) {
-        break
-      }
-
-      if (!is.null(event$stdout) && nzchar(event$stdout)) {
-        parsed <- parse_task_output(event$stdout)
-        if (length(parsed$events) > 0) {
-          last_event <- parsed$events[[length(parsed$events)]]
-          task$progress_state <- list(
-            fraction = last_event$fraction,
-            message = last_event$message,
-            updated_at = last_event$ts
-          )
-        }
-        task$stdout_buffer <- paste0(task$stdout_buffer, parsed$text)
-      }
-
-      if (!is.null(event$stderr) && nzchar(event$stderr)) {
-        task$stderr_buffer <- paste0(task$stderr_buffer, event$stderr)
-      }
-
-      if (identical(event$code, 200L)) {
-        task$call_result <- event
-        break
-      }
-
-      if (identical(event$code, 500L) || identical(event$code, 501L) || identical(event$code, 502L)) {
-        task$call_result <- list(
-          code = event$code,
-          result = NULL,
-          stdout = "",
-          stderr = task$stderr_buffer,
-          error = structure(
-            list(message = "subprocess died unexpectedly"),
-            class = "error"
-          )
-        )
-        break
-      }
-    }
-  }
-
-  invisible(task)
-}
-
-#' Convert a callr error object into a readable message.
-#'
-#' Purpose:
-#' - Extract a concise failure message from the call result object returned by
-#'   `callr::r_session$read()`.
-#'
-#' Parameters:
-#' - `error`: Error object returned by `callr`.
-#'
-#' Returns:
-#' - `character(1)`: Readable error message.
-#'
-#' @keywords internal
-task_result_error_message <- function(error, stderr_text = "") {
-  if (is.null(error)) {
-    return(NULL)
-  }
-
-  if (nzchar(stderr_text)) {
-    return(trimws(stderr_text))
-  }
-
-  if (!is.null(error$parent$message) && nzchar(error$parent$message)) {
-    return(error$parent$message)
-  }
-
-  if (!is.null(error$stderr) && nzchar(error$stderr)) {
-    return(trimws(error$stderr))
-  }
-
-  if (!is.null(error$message) && nzchar(error$message)) {
-    return(error$message)
-  }
-
-  as.character(error)[1]
 }

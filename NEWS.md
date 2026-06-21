@@ -17,8 +17,9 @@
 - Refactored dashboard task cards to persist in the browser and update logs in
   place, avoiding full card-list refreshes that could reset expanded console
   scroll position.
-- Fixed `output = "none"` task completion when user code saves results outside
-  taskr, such as Stan/CmdStan model fits written to local files.
+- Fixed task completion semantics so `output = "none"` tasks are completed when
+  the submitted expression or function returns normally, including
+  brms/cmdstanr fits that save model files outside taskr.
 - Improved failed-task messages by keeping cached stderr available after queue
   polling.
 

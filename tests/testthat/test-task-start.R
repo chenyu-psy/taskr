@@ -19,6 +19,54 @@ test_that("build_task_expr saves the result when a path is supplied", {
   rm(".__taskr_result", envir = environment())
 })
 
+test_that("build_task_expr writes completed marker after normal return", {
+  status_path <- tempfile(fileext = ".rds")
+  wrapped_expr <- taskr:::build_task_expr(quote(1 + 1), status_path = status_path)
+
+  eval(wrapped_expr)
+
+  marker <- readRDS(status_path)
+  expect_identical(marker$status, "completed")
+  expect_null(marker$message)
+
+  unlink(status_path)
+  rm(".__taskr_result", envir = environment())
+})
+
+test_that("build_task_expr writes failed marker when user code errors", {
+  status_path <- tempfile(fileext = ".rds")
+  wrapped_expr <- taskr:::build_task_expr(quote(stop("marker boom")), status_path = status_path)
+
+  expect_error(eval(wrapped_expr), "marker boom")
+
+  marker <- readRDS(status_path)
+  expect_identical(marker$status, "failed")
+  expect_match(marker$message, "marker boom")
+
+  unlink(status_path)
+})
+
+test_that("build_task_expr marks result-saving failures as failed", {
+  status_path <- tempfile(fileext = ".rds")
+  bad_result_path <- tempfile()
+  dir.create(bad_result_path)
+  wrapped_expr <- taskr:::build_task_expr(
+    quote(1 + 1),
+    result_path = bad_result_path,
+    status_path = status_path
+  )
+
+  suppressWarnings(expect_error(eval(wrapped_expr)))
+
+  marker <- readRDS(status_path)
+  expect_identical(marker$status, "failed")
+  expect_true(nzchar(marker$message))
+
+  unlink(status_path)
+  unlink(bad_result_path, recursive = TRUE)
+  rm(".__taskr_result", envir = environment())
+})
+
 test_that("build_task_expr applies imports, packages, workdir, and env", {
   old_wd <- getwd()
   on.exit(setwd(old_wd), add = TRUE)
@@ -120,6 +168,8 @@ test_that("start_task_process launches a background task when callr is installed
   expect_true(task$is_alive())
   expect_true(wait_for_file(result_path))
   expect_equal(readRDS(result_path), 7L)
+  expect_true(wait_for_file(task$status_path))
+  expect_identical(readRDS(task$status_path)$status, "completed")
 
   close_task_process(task)
   unlink(result_path)
@@ -194,6 +244,8 @@ test_that("start_task_process leaves no result file when the child errors", {
 
   Sys.sleep(0.5)
   expect_false(file.exists(result_path))
+  expect_true(wait_for_file(task$status_path))
+  expect_identical(readRDS(task$status_path)$status, "failed")
 
   close_task_process(task)
 })
