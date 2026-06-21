@@ -53,7 +53,7 @@ test_that("split_dashboard_tasks applies requested sorting rules", {
 
   expect_identical(out$running$id, c(2L, 1L))
   expect_identical(out$pending$id, c(4L, 3L))
-  expect_identical(out$pending$card_summary, c("P3 · #1", "P1 · #2"))
+  expect_identical(out$pending$card_summary, c("P3 \u00b7 #1", "P1 \u00b7 #2"))
   expect_identical(out$finished$id, c(6L, 5L))
 })
 
@@ -628,7 +628,7 @@ test_that("pending cards hide remove actions and finished cards expose them", {
     start_time_label = "-",
     end_time_label = "-",
     card_title = "1: queued_demo",
-    card_summary = "P1 · #1",
+    card_summary = "P1 \u00b7 #1",
     error = "",
     stringsAsFactors = FALSE
   )
@@ -651,7 +651,7 @@ test_that("pending cards hide remove actions and finished cards expose them", {
 
   expect_false(grepl('data-taskr-action="remove"', queued_html, fixed = TRUE))
   expect_true(grepl('data-taskr-action="cancel"', queued_html, fixed = TRUE))
-  expect_true(grepl("P1 · #1", queued_html, fixed = TRUE))
+  expect_true(grepl("P1 \u00b7 #1", queued_html, fixed = TRUE))
   expect_true(grepl("Submitted: 04-11 00:00:00", queued_html, fixed = TRUE))
   expect_false(grepl("Priority:", queued_html, fixed = TRUE))
   expect_false(grepl("Waiting:", queued_html, fixed = TRUE))

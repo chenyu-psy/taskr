@@ -408,7 +408,7 @@ split_dashboard_tasks <- function(tab) {
 
   if (nrow(pending) > 0) {
     pending <- pending[order(-pending$priority, pending$submit_time), , drop = FALSE]
-    pending$card_summary <- sprintf("P%d · #%d", pending$priority, seq_len(nrow(pending)))
+    pending$card_summary <- sprintf("P%d \u00b7 #%d", pending$priority, seq_len(nrow(pending)))
   }
 
   if (nrow(finished) > 0) {
