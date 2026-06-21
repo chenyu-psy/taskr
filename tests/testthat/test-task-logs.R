@@ -33,8 +33,8 @@ test_that("get_task_log returns buffered logs for a completed task", {
 
   pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$finished <- list(
-    task_001 = list(
-      id = "task_001",
+    "1" = list(
+      id = 1L,
       label = "log_done",
       status = "completed",
       stdout_buffer = "hello\n",
@@ -42,8 +42,8 @@ test_that("get_task_log returns buffered logs for a completed task", {
     )
   )
 
-  out <- get_task_log("log_done")
-  expect_identical(out$id, "task_001")
+  out <- get_task_log(1)
+  expect_identical(out$id, 1L)
   expect_identical(out$status, "completed")
   expect_identical(out$stdout, "hello\n")
 })
@@ -59,8 +59,8 @@ test_that("get_task_log recycles running logs before returning", {
 
   pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
   pkg_env$scheduler$running <- list(
-    task_010 = list(
-      id = "task_010",
+    "10" = list(
+      id = 10L,
       label = "log_run",
       status = "running",
       resources = list(slots = 1L),
@@ -74,7 +74,7 @@ test_that("get_task_log recycles running logs before returning", {
     )
   )
 
-  out <- get_task_log("log_run")
+  out <- get_task_log(10)
   expect_identical(out$status, "running")
   expect_true(grepl("chunk", out$stdout))
   expect_true(grepl("warn", out$stderr))
@@ -86,5 +86,6 @@ test_that("get_task_log errors when task is missing", {
   taskr::init_queue(max_slots = 1)
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
-  expect_error(get_task_log("missing"), "Task not found")
+  expect_error(get_task_log(99), "Task not found")
+  expect_error(get_task_log("missing"), "positive integer")
 })

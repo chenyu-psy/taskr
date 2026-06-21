@@ -147,7 +147,7 @@ validate_control_token <- function(payload) {
 }
 
 control_cancel_task <- function(task_id) {
-  validate_id_or_label(task_id)
+  task_id <- normalize_task_id(task_id, name = "task_id")
   cancel_task(task_id)
   write_dashboard_snapshot()
   list(
@@ -173,8 +173,8 @@ control_remove_task <- function(task_id) {
 # - List payload for the dashboard control response.
 #
 # Assumptions and side effects:
-# - `remove_task()` cancels queued/running tasks before removing their records.
-  validate_id_or_label(task_id)
+# - `remove_task()` cancels pending/running tasks before removing their records.
+  task_id <- normalize_task_id(task_id, name = "task_id")
   remove_task(task_id)
   write_dashboard_snapshot()
   list(
@@ -191,7 +191,7 @@ control_clear_all_tasks <- function() {
       ok = TRUE,
       action = "clear_all",
       cancelled = character(),
-      removed_queued = character(),
+      removed_pending = character(),
       message = "Queue is not initialized."
     ))
   }
@@ -202,9 +202,9 @@ control_clear_all_tasks <- function() {
   }
 
   running_ids <- names(pkg_env$scheduler$running %||% list())
-  queued_items <- pkg_env$scheduler$queue %||% list()
-  queued_ids <- vapply(queued_items, function(item) as.character(item$id %||% ""), character(1))
-  queued_ids <- queued_ids[nzchar(queued_ids)]
+  pending_items <- pkg_env$scheduler$pending %||% list()
+  pending_ids <- vapply(pending_items, function(item) as.character(item$id %||% ""), character(1))
+  pending_ids <- pending_ids[nzchar(pending_ids)]
 
   stop_scheduler()
 
@@ -254,7 +254,7 @@ control_clear_all_tasks <- function() {
     ok = TRUE,
     action = "clear_all",
     cancelled = running_ids,
-    removed_queued = queued_ids,
+    removed_pending = pending_ids,
     message = "All tasks cleared."
   )
 }

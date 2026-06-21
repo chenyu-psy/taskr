@@ -94,11 +94,13 @@ get_task_overview(status = "running")
 
 ## Step 4: Read Outputs
 
-Use logs for runtime diagnostics and results for final outputs.
+Use `get_task_overview()` to find numeric task ids. Then use task ids for logs,
+results, cancellation, and cleanup.
 
 ```r
-get_task_log("demo_code")
-get_task_result("demo_function")
+tasks <- get_task_overview()
+get_task_log(tasks$id[tasks$label == "demo_code"])
+get_task_result(tasks$id[tasks$label == "demo_function"])
 ```
 
 # Dashboard Panels
@@ -124,7 +126,7 @@ polling the console.
 The summary area reports overall queue state. Slot usage shows how much of the
 configured capacity is currently occupied, and completion progress shows how
 many submitted tasks have reached a terminal state. The search box filters task
-cards by id or label across the dashboard.
+cards by task id or label across the dashboard.
 
 <p align="center">
   <img src="inst/images/dashboard-panels/summary-panel.jpg" alt="Summary panel" width="50%">
@@ -132,8 +134,8 @@ cards by id or label across the dashboard.
 
 ## Running Panel
 
-The running panel lists tasks that are currently executing. Each card reports
-elapsed time, current status, and the latest progress signal when available.
+The running panel lists tasks that are currently executing. Each card title
+starts with the numeric task id and shows elapsed time in the top-right summary.
 Task details expand inline, and running tasks can be cancelled from the card.
 
 <p align="center">

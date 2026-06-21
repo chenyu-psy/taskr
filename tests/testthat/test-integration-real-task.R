@@ -1,11 +1,10 @@
-wait_for_task_status <- function(list_tasks_fn, id_or_label, status, timeout = 10) {
+wait_for_task_status <- function(list_tasks_fn, label, status, timeout = 10) {
   deadline <- Sys.time() + timeout
 
   while (Sys.time() < deadline) {
-    tab <- list_tasks_fn()
+    tab <- list_tasks_fn(label = label)
     if (nrow(tab) > 0) {
-      hit <- tab[tab$id == id_or_label | tab$label == id_or_label, , drop = FALSE]
-      if (nrow(hit) == 1 && identical(hit$status[[1]], status)) {
+      if (nrow(tab) == 1 && identical(tab$status[[1]], status)) {
         return(TRUE)
       }
     }
@@ -13,6 +12,14 @@ wait_for_task_status <- function(list_tasks_fn, id_or_label, status, timeout = 1
   }
 
   FALSE
+}
+
+task_id_for_label <- function(list_tasks_fn, label) {
+  tab <- list_tasks_fn(label = label)
+  if (nrow(tab) != 1) {
+    stop("Expected one task for label `", label, "`.")
+  }
+  tab$id[[1]]
 }
 
 test_that("integration: submit_code -> completed -> get_task_result", {
@@ -32,7 +39,7 @@ test_that("integration: submit_code -> completed -> get_task_result", {
   )
 
   expect_true(wait_for_task_status(get_task_overview, "int_submit_done", "completed", timeout = 15))
-  expect_identical(get_task_result("int_submit_done"), 5L)
+  expect_identical(get_task_result(task_id_for_label(get_task_overview, "int_submit_done")), 5L)
 })
 
 test_that("integration: default output completes without a result file", {
@@ -51,8 +58,9 @@ test_that("integration: default output completes without a result file", {
   )
 
   expect_true(wait_for_task_status(get_task_overview, "int_default_none", "completed", timeout = 15))
+  task_id <- task_id_for_label(get_task_overview, "int_default_none")
   expect_warning(
-    expect_null(get_task_result("int_default_none")),
+    expect_null(get_task_result(task_id)),
     "output = \"none\""
   )
 })
@@ -83,10 +91,11 @@ test_that("integration: output none completes when user code saves an external r
   )
 
   expect_true(wait_for_task_status(get_task_overview, "int_external_result_none", "completed", timeout = 15))
+  task_id <- task_id_for_label(get_task_overview, "int_external_result_none")
   expect_true(file.exists(external_path))
   expect_identical(readRDS(external_path), list(model = "stan_like", draws = 100L))
   expect_warning(
-    expect_null(get_task_result("int_external_result_none")),
+    expect_null(get_task_result(task_id)),
     "output = \"none\""
   )
 })
@@ -109,7 +118,7 @@ test_that("integration: submit_task output filtering works end-to-end", {
   )
 
   expect_true(wait_for_task_status(get_task_overview, "int_call_filter", "completed", timeout = 15))
-  expect_identical(get_task_result("int_call_filter"), list(sum = 9L))
+  expect_identical(get_task_result(task_id_for_label(get_task_overview, "int_call_filter")), list(sum = 9L))
 })
 
 test_that("integration: failed task is visible and get_task_result errors", {
@@ -129,7 +138,7 @@ test_that("integration: failed task is visible and get_task_result errors", {
   )
 
   expect_true(wait_for_task_status(get_task_overview, "int_fail", "failed", timeout = 15))
-  expect_error(get_task_result("int_fail"))
+  expect_error(get_task_result(task_id_for_label(get_task_overview, "int_fail")))
 })
 
 test_that("integration: cancel_task kills running task", {
@@ -149,7 +158,8 @@ test_that("integration: cancel_task kills running task", {
   )
 
   expect_true(wait_for_task_status(get_task_overview, "int_cancel", "running", timeout = 15))
-  taskr::cancel_task("int_cancel")
+  task_id <- task_id_for_label(get_task_overview, "int_cancel")
+  taskr::cancel_task(task_id)
   expect_true(wait_for_task_status(get_task_overview, "int_cancel", "cancelled", timeout = 15))
-  expect_error(get_task_result("int_cancel"), "cancelled")
+  expect_error(get_task_result(task_id), "cancelled")
 })

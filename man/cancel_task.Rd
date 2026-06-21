@@ -2,12 +2,12 @@
 % Please edit documentation in R/task-control.R
 \name{cancel_task}
 \alias{cancel_task}
-\title{Cancel One Task by Id or Label}
+\title{Cancel One or More Tasks by Id}
 \usage{
-cancel_task(id_or_label)
+cancel_task(id)
 }
 \arguments{
-\item{id_or_label}{Task id or label used to identify one task.}
+\item{id}{Numeric task id vector.}
 }
 \value{
 Invisibly returns \code{NULL}.
@@ -15,11 +15,11 @@ Invisibly returns \code{NULL}.
 \description{
 Purpose:
 \itemize{
-\item Remove a queued task or kill a running task.
+\item Remove pending tasks or kill running tasks.
 \item Mark canceled tasks as \code{cancelled} in terminal records.
 }
 }
 \examples{
 init_queue(max_slots = 1)
-# cancel_task("task_001")
+# cancel_task(1)
 }

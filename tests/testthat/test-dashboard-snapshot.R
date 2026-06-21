@@ -15,7 +15,7 @@ test_that("dashboard snapshot round-trip keeps task rows readable", {
   now <- as.POSIXct("2026-04-11 00:00:00", tz = "UTC")
 
   item <- list(
-    id = "task_001",
+    id = 1L,
     label = "demo_001",
     status = "running",
     priority = 1L,
@@ -31,7 +31,7 @@ test_that("dashboard snapshot round-trip keeps task rows readable", {
   )
 
   state <- new_scheduler_state(max_slots = 3L)
-  state$running <- list(task_001 = item)
+  state$running <- list("1" = item)
   pkg_env$scheduler <- state
 
   write_dashboard_snapshot(now = now)
@@ -42,7 +42,7 @@ test_that("dashboard snapshot round-trip keeps task rows readable", {
   expect_equal(snap$max_slots, 3L)
   expect_true(is.data.frame(snap$tasks))
   expect_equal(nrow(snap$tasks), 1)
-  expect_identical(snap$tasks$id[[1]], "task_001")
+  expect_identical(snap$tasks$id[[1]], 1L)
   expect_identical(snap$tasks$status[[1]], "running")
   expect_s3_class(snap$tasks$submit_time, "POSIXct")
   expect_s3_class(snap$tasks$start_time, "POSIXct")
@@ -69,7 +69,7 @@ test_that("dashboard snapshot round-trip preserves local elapsed timing", {
   now <- as.POSIXct("2026-04-11 00:00:00", tz = local_tz)
 
   item <- list(
-    id = "task_local_001",
+    id = 1L,
     label = "demo_local",
     status = "running",
     priority = 1L,
@@ -85,7 +85,7 @@ test_that("dashboard snapshot round-trip preserves local elapsed timing", {
   )
 
   state <- new_scheduler_state(max_slots = 1L)
-  state$running <- list(task_local_001 = item)
+  state$running <- list("1" = item)
   pkg_env$scheduler <- state
 
   write_dashboard_snapshot(now = now)

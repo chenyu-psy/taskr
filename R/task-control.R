@@ -1,7 +1,7 @@
 # Task Control API (User-Facing)
 #
 # Purpose:
-# - Cancel queued/running tasks by id or label.
+# - Cancel pending/running tasks by id.
 # - Remove one task or clean terminal task records and temporary result files.
 
 delete_task_result_file <- function(item) {
@@ -47,6 +47,7 @@ get_active_task_by_id <- function(id) {
 #
 # Returns:
 # - Task object when it is still registered; otherwise `NULL`.
+  id <- task_id_key(id)
   if (is.null(pkg_env$active_tasks)) {
     return(NULL)
   }
@@ -87,6 +88,7 @@ cancel_active_task_by_id <- function(id) {
 #
 # Returns:
 # - `TRUE` when a registered task was killed, otherwise `FALSE`.
+  id <- normalize_task_id(id)
   task_obj <- get_active_task_by_id(id)
   if (is.null(task_obj)) {
     return(FALSE)
@@ -97,23 +99,30 @@ cancel_active_task_by_id <- function(id) {
   TRUE
 }
 
-#' Cancel One Task by Id or Label
+#' Cancel One or More Tasks by Id
 #'
 #' Purpose:
-#' - Remove a queued task or kill a running task.
+#' - Remove pending tasks or kill running tasks.
 #' - Mark canceled tasks as `cancelled` in terminal records.
 #'
-#' @param id_or_label Task id or label used to identify one task.
+#' @param id Numeric task id vector.
 #' @return Invisibly returns `NULL`.
 #' @examples
 #' init_queue(max_slots = 1)
-#' # cancel_task("task_001")
+#' # cancel_task(1)
 #' @export
-cancel_task <- function(id_or_label) {
-  validate_id_or_label(id_or_label)
+cancel_task <- function(id) {
+  ids <- normalize_task_ids(id, allow_multiple = TRUE)
+  for (task_id in ids) {
+    cancel_one_task(task_id)
+  }
 
+  invisible(NULL)
+}
+
+cancel_one_task <- function(id) {
   if (is.null(pkg_env$scheduler)) {
-    if (cancel_active_task_by_id(id_or_label)) {
+    if (cancel_active_task_by_id(id)) {
       write_dashboard_snapshot()
       return(invisible(NULL))
     }
@@ -121,13 +130,13 @@ cancel_task <- function(id_or_label) {
   }
 
   pkg_env$scheduler <- recycle_running_tasks(pkg_env$scheduler, now = Sys.time())
-  matched <- resolve_task_reference(pkg_env$scheduler, id_or_label)
+  matched <- resolve_task_reference(pkg_env$scheduler, id)
   if (is.null(matched)) {
-    if (cancel_active_task_by_id(id_or_label)) {
+    if (cancel_active_task_by_id(id)) {
       write_dashboard_snapshot()
       return(invisible(NULL))
     }
-    stop("Task not found for `id_or_label = ", id_or_label, "`.")
+    stop("Task not found for `id = ", id, "`.")
   }
   item <- matched$item
   now <- Sys.time()
@@ -140,7 +149,7 @@ cancel_task <- function(id_or_label) {
       item$status <- "cancelled"
       item$end_time <- now
       item$error <- item$error %||% "Task canceled by user."
-      pkg_env$scheduler$finished[[item$id]] <- item
+      pkg_env$scheduler$finished[[task_id_key(item$id)]] <- item
       delete_task_result_file(item)
       write_dashboard_snapshot()
       return(invisible(NULL))
@@ -150,8 +159,8 @@ cancel_task <- function(id_or_label) {
     return(invisible(NULL))
   }
 
-  if (identical(matched$bucket, "queue")) {
-    pkg_env$scheduler$queue <- pkg_env$scheduler$queue[-matched$index]
+  if (identical(matched$bucket, "pending")) {
+    pkg_env$scheduler$pending <- pkg_env$scheduler$pending[-matched$index]
   } else if (identical(matched$bucket, "running")) {
     run_id <- matched$index
     run_item <- pkg_env$scheduler$running[[run_id]]
@@ -162,7 +171,7 @@ cancel_task <- function(id_or_label) {
   item$status <- "cancelled"
   item$end_time <- now
   item$error <- item$error %||% "Task canceled by user."
-  pkg_env$scheduler$finished[[item$id]] <- item
+  pkg_env$scheduler$finished[[task_id_key(item$id)]] <- item
   delete_task_result_file(item)
   pkg_env$scheduler <- update_queue(pkg_env$scheduler, now = now)
   if (!scheduler_has_work(pkg_env$scheduler)) {
@@ -189,35 +198,41 @@ remove_finished_task_record <- function(id) {
 #
 # Assumptions and side effects:
 # - Deletes the task result file when present.
-# - Removes only this task's label index entry.
+  id <- task_id_key(id)
   item <- pkg_env$scheduler$finished[[id]] %||% NULL
   if (is.null(item)) {
     stop("Finished task `", id, "` was not found.")
   }
 
   delete_task_result_file(item)
-  pkg_env$scheduler <- remove_label_index_entry(pkg_env$scheduler, item)
   pkg_env$scheduler$finished[[id]] <- NULL
   item
 }
 
-#' Remove One Task by Id or Label
+#' Remove One or More Tasks by Id
 #'
 #' Purpose:
 #' - Remove one task record from the queue monitor.
-#' - Cancel queued or running work before removing its terminal record.
+#' - Cancel pending or running work before removing its terminal record.
 #'
-#' @param id_or_label Task id or label used to identify one task.
+#' @param id Numeric task id vector.
 #' @return Invisibly returns `NULL`.
 #' @examples
 #' init_queue(max_slots = 1)
-#' # remove_task("task_001")
+#' # remove_task(1)
 #' @export
-remove_task <- function(id_or_label) {
-  validate_id_or_label(id_or_label)
+remove_task <- function(id) {
+  ids <- normalize_task_ids(id, allow_multiple = TRUE)
+  for (task_id in ids) {
+    remove_one_task(task_id)
+  }
 
+  invisible(NULL)
+}
+
+remove_one_task <- function(id) {
   if (is.null(pkg_env$scheduler)) {
-    if (cancel_active_task_by_id(id_or_label)) {
+    if (cancel_active_task_by_id(id)) {
       write_dashboard_snapshot()
       return(invisible(NULL))
     }
@@ -225,18 +240,18 @@ remove_task <- function(id_or_label) {
   }
 
   pkg_env$scheduler <- recycle_running_tasks(pkg_env$scheduler, now = Sys.time())
-  matched <- resolve_task_reference(pkg_env$scheduler, id_or_label)
+  matched <- resolve_task_reference(pkg_env$scheduler, id)
   if (is.null(matched)) {
-    if (cancel_active_task_by_id(id_or_label)) {
+    if (cancel_active_task_by_id(id)) {
       write_dashboard_snapshot()
       return(invisible(NULL))
     }
-    stop("Task not found for `id_or_label = ", id_or_label, "`.")
+    stop("Task not found for `id = ", id, "`.")
   }
 
   task_id <- matched$item$id
   if (!identical(matched$bucket, "finished")) {
-    cancel_task(task_id)
+    cancel_one_task(task_id)
   }
 
   pkg_env$scheduler <- recycle_running_tasks(pkg_env$scheduler, now = Sys.time())
@@ -277,7 +292,6 @@ clean_tasks <- function() {
 
   for (item in finished_items) {
     delete_task_result_file(item)
-    pkg_env$scheduler <- remove_label_index_entry(pkg_env$scheduler, item)
   }
 
   pkg_env$scheduler$finished <- list()

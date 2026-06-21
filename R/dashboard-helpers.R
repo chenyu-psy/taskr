@@ -10,7 +10,7 @@
 # - Zero-row data.frame used as a safe fallback in UI rendering.
 empty_dashboard_table <- function() {
   data.frame(
-    id = character(),
+    id = integer(),
     label = character(),
     status = character(),
     slots = integer(),
@@ -85,13 +85,13 @@ normalize_dashboard_posixct <- function(x) {
   suppressWarnings(as.POSIXct(x, origin = "1970-01-01", tz = "UTC"))
 }
 
-# Collect queue/running/finished task items into one flat list.
+# Collect pending/running/finished task items into one flat list.
 # Args:
 # - state: Scheduler state list.
 # Returns:
 # - List of task item lists.
 collect_dashboard_items <- function(state) {
-  c(state$queue %||% list(), unname(state$running %||% list()), unname(state$finished %||% list()))
+  c(state$pending %||% list(), unname(state$running %||% list()), unname(state$finished %||% list()))
 }
 
 # Build one snapshot table from a provided scheduler state.
@@ -115,17 +115,18 @@ dashboard_snapshot_table_from_state <- function(state) {
   out
 }
 
-# Fallback to task id when label is empty so cards always have a title.
+# Build the compact card title from task id and optional label.
 # Args:
 # - label: Optional task label.
 # - id: Task id.
 # Returns:
 # - A non-empty card title string.
-coalesce_label <- function(label, id) {
+dashboard_task_title <- function(label, id) {
+  id <- as.character(id)
   if (is.null(label) || length(label) == 0 || is.na(label) || !nzchar(label)) {
     return(id)
   }
-  label
+  paste0(id, ": ", label)
 }
 
 # Normalize one task slot declaration for dashboard display math.
@@ -169,8 +170,8 @@ dashboard_item_pid <- function(item) {
 # - One-row data.frame with raw fields used by dashboard rendering.
 dashboard_item_to_row <- function(item) {
   data.frame(
-    id = as.character(item$id %||% NA_character_),
-    label = as.character(coalesce_label(item$label %||% NA_character_, item$id %||% NA_character_)),
+    id = normalize_task_id(item$id %||% NA_integer_),
+    label = as.character(item$label %||% NA_character_),
     status = as.character(item$status %||% NA_character_),
     slots = dashboard_item_slots(item),
     priority = as.integer(item$priority %||% 0L),
@@ -191,7 +192,7 @@ dashboard_item_to_row <- function(item) {
 # Args:
 # - now: Timestamp used to recycle running tasks.
 # Returns:
-# - Task snapshot data.frame for all queue buckets.
+# - Task snapshot data.frame for all scheduler buckets.
 extract_dashboard_snapshot <- function(now = Sys.time()) {
   if (is.null(pkg_env$scheduler)) {
     return(empty_dashboard_table())
@@ -205,7 +206,7 @@ extract_dashboard_snapshot <- function(now = Sys.time()) {
   dashboard_snapshot_table_from_state(pkg_env$scheduler)
 }
 
-# Build an event-style signature for queue structure changes.
+# Build an event-style signature for scheduler structure changes.
 # Args:
 # - tab: Snapshot table from `extract_dashboard_snapshot()`.
 # Returns:
@@ -216,7 +217,7 @@ dashboard_state_signature <- function(tab) {
   }
 
   key <- data.frame(
-    id = as.character(tab$id),
+    id = as.integer(tab$id),
     status = as.character(tab$status),
     priority = as.integer(tab$priority),
     submit_time = as.numeric(tab$submit_time),
@@ -326,6 +327,9 @@ add_dashboard_derived_columns <- function(tab, now = Sys.time()) {
     tab$queue_wait_sec <- numeric()
     tab$running_elapsed <- character()
     tab$queue_wait <- character()
+    tab$duration <- character()
+    tab$card_title <- character()
+    tab$card_summary <- character()
     tab$submit_time_label <- character()
     tab$start_time_label <- character()
     tab$end_time_label <- character()
@@ -337,6 +341,25 @@ add_dashboard_derived_columns <- function(tab, now = Sys.time()) {
 
   tab$running_elapsed <- vapply(tab$running_elapsed_sec, format_dashboard_duration, character(1))
   tab$queue_wait <- vapply(tab$queue_wait_sec, format_dashboard_duration, character(1))
+  terminal_elapsed_sec <- as.numeric(difftime(tab$end_time, tab$start_time, units = "secs"))
+  tab$duration <- vapply(terminal_elapsed_sec, format_dashboard_duration, character(1))
+  tab$card_title <- mapply(dashboard_task_title, tab$label, tab$id, USE.NAMES = FALSE)
+  tab$card_summary <- vapply(seq_len(nrow(tab)), function(i) {
+    status <- tab$status[[i]]
+    if (identical(status, "pending")) {
+      return("")
+    }
+    if (identical(status, "running")) {
+      return(tab$running_elapsed[[i]])
+    }
+    if (identical(status, "cancelled")) {
+      return("cancelled")
+    }
+    if (status %in% c("completed", "failed")) {
+      return(tab$duration[[i]])
+    }
+    status
+  }, character(1))
   tab$submit_time_label <- vapply(tab$submit_time, format_dashboard_time, character(1))
   tab$start_time_label <- vapply(tab$start_time, format_dashboard_time, character(1))
   tab$end_time_label <- vapply(tab$end_time, format_dashboard_time, character(1))
@@ -359,42 +382,45 @@ filter_dashboard_tasks <- function(tab, query = "") {
     return(tab)
   }
 
-  keep <- grepl(q, tolower(tab$id), fixed = TRUE) |
-    grepl(q, tolower(tab$label), fixed = TRUE)
+  label_text <- as.character(tab$label)
+  label_text[is.na(label_text)] <- ""
+  keep <- grepl(q, tolower(as.character(tab$id)), fixed = TRUE) |
+    grepl(q, tolower(label_text), fixed = TRUE)
   tab[keep, , drop = FALSE]
 }
 
-# Split dashboard table into running/queued/finished views with requested sorting.
+# Split dashboard table into running/pending/finished views with requested sorting.
 # Args:
 # - tab: Dashboard table.
 # Returns:
-# - Named list with data.frames: running, queued, finished.
+# - Named list with data.frames: running, pending, finished.
 split_dashboard_tasks <- function(tab) {
   if (nrow(tab) == 0) {
     return(list(
       running = tab,
-      queued = tab,
+      pending = tab,
       finished = tab
     ))
   }
 
   running <- tab[tab$status == "running", , drop = FALSE]
-  queued <- tab[tab$status == "queued", , drop = FALSE]
+  pending <- tab[tab$status == "pending", , drop = FALSE]
   finished <- tab[tab$status %in% c("completed", "failed", "cancelled"), , drop = FALSE]
 
   if (nrow(running) > 0) {
     running <- running[order(running$start_time, decreasing = TRUE), , drop = FALSE]
   }
 
-  if (nrow(queued) > 0) {
-    queued <- queued[order(-queued$priority, queued$submit_time), , drop = FALSE]
+  if (nrow(pending) > 0) {
+    pending <- pending[order(-pending$priority, pending$submit_time), , drop = FALSE]
+    pending$card_summary <- sprintf("P%d · #%d", pending$priority, seq_len(nrow(pending)))
   }
 
   if (nrow(finished) > 0) {
     finished <- finished[order(finished$end_time, decreasing = TRUE), , drop = FALSE]
   }
 
-  list(running = running, queued = queued, finished = finished)
+  list(running = running, pending = pending, finished = finished)
 }
 
 # Compute summary counters and progress ratios for top summary panel.
@@ -405,7 +431,7 @@ split_dashboard_tasks <- function(tab) {
 # - Named list with counts and ratio values.
 dashboard_summary_metrics <- function(tab, max_slots = 1L) {
   n_running <- sum(tab$status == "running")
-  n_queued <- sum(tab$status == "queued")
+  n_pending <- sum(tab$status == "pending")
   n_completed <- sum(tab$status == "completed")
   n_failed <- sum(tab$status == "failed")
   n_cancelled <- sum(tab$status == "cancelled")
@@ -433,7 +459,7 @@ dashboard_summary_metrics <- function(tab, max_slots = 1L) {
   list(
     total = n_total,
     running = n_running,
-    queued = n_queued,
+    pending = n_pending,
     completed = n_completed,
     failed = n_failed,
     cancelled = n_cancelled,
@@ -454,7 +480,7 @@ status_badge_class <- function(status) {
     status,
     canceling = "status-failed",
     running = "status-running",
-    queued = "status-queued",
+    pending = "status-pending",
     completed = "status-completed",
     failed = "status-failed",
     cancelled = "status-cancelled",
@@ -477,11 +503,16 @@ status_display_label <- function(status) {
 # Returns:
 # - CSS class string.
 dashboard_card_class <- function(status) {
-  if (identical(status, "failed")) {
-    return("task-card task-card-failed")
-  }
-
-  "task-card"
+  paste("task-card", switch(
+    status,
+    canceling = "task-card-failed",
+    pending = "task-card-pending",
+    running = "task-card-running",
+    completed = "task-card-completed",
+    failed = "task-card-failed",
+    cancelled = "task-card-failed",
+    "task-card-unknown"
+  ))
 }
 
 # Build deterministic UI button ids from task ids.
@@ -502,7 +533,8 @@ button_id_for_task <- function(prefix, task_id) {
 # Returns:
 # - Multi-line text block for verbatim display.
 dashboard_log_text <- function(task_id, tail_n = 200L) {
-  if (is.null(task_id) || length(task_id) == 0 || is.na(task_id) || !nzchar(task_id)) {
+  task_id <- tryCatch(normalize_task_id(task_id), error = function(e) NA_integer_)
+  if (is.na(task_id)) {
     return("Select one task card to view logs.")
   }
 

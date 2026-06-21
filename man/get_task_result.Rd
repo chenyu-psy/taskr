@@ -2,12 +2,12 @@
 % Please edit documentation in R/task-result.R
 \name{get_task_result}
 \alias{get_task_result}
-\title{Read the Result of a Task by Id or Label}
+\title{Read the Result of a Task by Id}
 \usage{
-get_task_result(id_or_label)
+get_task_result(id)
 }
 \arguments{
-\item{id_or_label}{Task id or label used to identify one task.}
+\item{id}{Numeric task id used to identify one task.}
 }
 \value{
 The stored task result object, or \code{NULL} when output saving is off.
@@ -20,5 +20,5 @@ Purpose:
 }
 \examples{
 init_queue(max_slots = 1)
-# get_task_result("task_001")
+# get_task_result(1)
 }

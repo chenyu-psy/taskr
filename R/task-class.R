@@ -23,7 +23,7 @@ Task <- R6::R6Class(
     call_result = NULL,
     cancel_requested = FALSE,
 
-    initialize = function(id, process = NULL, status = "queued", result_path = NULL) {
+    initialize = function(id, process = NULL, status = "pending", result_path = NULL) {
 # Create a new internal task object.
 #
 # Purpose:
@@ -41,11 +41,9 @@ Task <- R6::R6Class(
 # Assumptions and side effects:
 # - Assumes `id` is a single non-missing character string.
 # - Records the creation time immediately.
-      if (!is.character(id) || length(id) != 1 || is.na(id) || !nzchar(id)) {
-        stop("`id` must be a single non-empty character string.")
-      }
+      id <- normalize_task_id(id)
 
-      allowed_status <- c("queued", "running", "completed", "failed", "cancelled")
+      allowed_status <- c("pending", "running", "completed", "failed", "cancelled")
       if (!is.character(status) || length(status) != 1 || is.na(status)) {
         stop("`status` must be a single non-missing character string.")
       }
@@ -91,7 +89,7 @@ Task <- R6::R6Class(
 # Assumptions and side effects:
 # - Updates `started_at` when a task first enters `running`.
 # - Updates `finished_at` when a task enters a terminal state.
-      allowed_status <- c("queued", "running", "completed", "failed", "cancelled")
+      allowed_status <- c("pending", "running", "completed", "failed", "cancelled")
       if (!is.character(status) || length(status) != 1 || is.na(status)) {
         stop("`status` must be a single non-missing character string.")
       }

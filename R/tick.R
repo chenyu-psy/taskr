@@ -3,7 +3,7 @@
 # Purpose:
 # - Advance queue state by one scheduler step:
 #   1) recycle running tasks
-#   2) sort queued tasks by priority and submit order
+#   2) sort pending tasks by priority and submit order
 #   3) start launchable tasks within slot capacity
 #
 # Notes:
@@ -27,24 +27,24 @@ running_slots_used <- function(running) {
   sum(vapply(running, task_slots, integer(1)))
 }
 
-sort_queue_by_priority <- function(queue) {
-  if (length(queue) <= 1) {
-    return(queue)
+sort_pending_by_priority <- function(pending) {
+  if (length(pending) <= 1) {
+    return(pending)
   }
 
-  priority <- vapply(queue, function(x) as.integer(x$priority %||% 0L), integer(1))
+  priority <- vapply(pending, function(x) as.integer(x$priority %||% 0L), integer(1))
   submit_time <- vapply(
-    queue,
+    pending,
     function(x) as.numeric(x$submit_time %||% 0),
     numeric(1)
   )
   order_idx <- order(-priority, submit_time)
-  queue[order_idx]
+  pending[order_idx]
 }
 
-# Convert one queued/running item into a cancelled finished record.
+# Convert one pending/running item into a cancelled finished record.
 # Args:
-# - item: Scheduler item from queue or running buckets.
+# - item: Scheduler item from pending or running buckets.
 # - now: Timestamp used as the cancellation end time.
 # Returns:
 # - The same task item with terminal cancelled fields set.
@@ -57,7 +57,7 @@ cancel_item_record <- function(item, now) {
 
 # Apply dashboard cancel markers before launching or recycling tasks.
 # Args:
-# - state: Scheduler state with queue/running/finished buckets.
+# - state: Scheduler state with pending/running/finished buckets.
 # - now: Timestamp used for cancellation records.
 # Returns:
 # - Updated scheduler state.
@@ -68,18 +68,18 @@ apply_dashboard_cancel_requests <- function(state, now) {
     return(state)
   }
 
-  if (length(state$queue) > 0) {
-    remaining_queue <- list()
-    for (item in state$queue) {
+  if (length(state$pending) > 0) {
+    remaining_pending <- list()
+    for (item in state$pending) {
       task_id <- as.character(item$id %||% "")
       if (nzchar(task_id) && dashboard_cancel_requested(task_id)) {
         state$finished[[task_id]] <- cancel_item_record(item, now = now)
         clear_dashboard_cancel_marker(task_id)
       } else {
-        remaining_queue[[length(remaining_queue) + 1L]] <- item
+        remaining_pending[[length(remaining_pending) + 1L]] <- item
       }
     }
-    state$queue <- remaining_queue
+    state$pending <- remaining_pending
   }
 
   if (length(state$running) > 0) {
@@ -115,7 +115,7 @@ apply_dashboard_cancel_requests <- function(state, now) {
 
 # Apply a dashboard request to remove all finished task records.
 # Args:
-# - state: Scheduler state with queue/running/finished buckets.
+# - state: Scheduler state with pending/running/finished buckets.
 # Returns:
 # - Updated scheduler state.
 # Side effects:
@@ -129,7 +129,6 @@ apply_dashboard_clean_finished_request <- function(state) {
   if (length(finished_items) > 0) {
     for (item in finished_items) {
       delete_task_result_file(item)
-      state <- remove_label_index_entry(state, item)
     }
   }
 
@@ -208,36 +207,36 @@ recycle_running_tasks <- function(state, now) {
 }
 
 launch_from_queue <- function(state, now, start_task_fn = NULL) {
-  if (length(state$queue) == 0) {
+  if (length(state$pending) == 0) {
     return(state)
   }
 
-  state$queue <- sort_queue_by_priority(state$queue)
+  state$pending <- sort_pending_by_priority(state$pending)
   capacity_slots <- as.integer(state$capacity$slots %||% 1L)
   available_slots <- capacity_slots - running_slots_used(state$running)
-  remaining_queue <- list()
+  remaining_pending <- list()
 
-  for (item in state$queue) {
+  for (item in state$pending) {
     item_slots <- task_slots(item)
 
     if (item_slots <= available_slots) {
       launcher <- start_task_fn %||% item$start_task
       if (is.null(launcher) || !is.function(launcher)) {
-        stop("Queued task must provide `start_task` or `update_queue()` must receive `start_task_fn`.")
+        stop("Pending task must provide `start_task` or `update_queue()` must receive `start_task_fn`.")
       }
 
       task_obj <- launcher(item)
       item$task <- task_obj
       item$status <- "running"
       item$start_time <- now
-      state$running[[item$id]] <- item
+      state$running[[task_id_key(item$id)]] <- item
       available_slots <- available_slots - item_slots
     } else {
-      remaining_queue[[length(remaining_queue) + 1L]] <- item
+      remaining_pending[[length(remaining_pending) + 1L]] <- item
     }
   }
 
-  state$queue <- remaining_queue
+  state$pending <- remaining_pending
   state
 }
 
@@ -247,6 +246,6 @@ update_queue <- function(state, start_task_fn = NULL, now = Sys.time()) {
   state <- apply_dashboard_cancel_requests(state, now = now)
   state <- apply_dashboard_clean_finished_request(state)
   state <- launch_from_queue(state, now = now, start_task_fn = start_task_fn)
-  state$scheduler_should_stop <- length(state$running) == 0 && length(state$queue) == 0
+  state$scheduler_should_stop <- length(state$running) == 0 && length(state$pending) == 0
   state
 }

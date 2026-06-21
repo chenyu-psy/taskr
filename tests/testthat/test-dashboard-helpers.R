@@ -39,9 +39,9 @@ test_that("split_dashboard_tasks applies requested sorting rules", {
 
   now <- as.POSIXct("2026-04-10 12:00:00", tz = "UTC")
   tab <- data.frame(
-    id = c("r_old", "r_new", "q_low_old", "q_high_new", "d_old", "f_new"),
+    id = c(1L, 2L, 3L, 4L, 5L, 6L),
     label = c("r_old", "r_new", "q_low_old", "q_high_new", "d_old", "f_new"),
-    status = c("running", "running", "queued", "queued", "completed", "failed"),
+    status = c("running", "running", "pending", "pending", "completed", "failed"),
     priority = c(0L, 0L, 1L, 3L, 0L, 0L),
     submit_time = c(now - 60, now - 30, now - 300, now - 100, now - 500, now - 400),
     start_time = c(now - 100, now - 20, NA, NA, now - 200, now - 150),
@@ -51,17 +51,18 @@ test_that("split_dashboard_tasks applies requested sorting rules", {
 
   out <- split_dashboard_tasks(tab)
 
-  expect_identical(out$running$id, c("r_new", "r_old"))
-  expect_identical(out$queued$id, c("q_high_new", "q_low_old"))
-  expect_identical(out$finished$id, c("f_new", "d_old"))
+  expect_identical(out$running$id, c(2L, 1L))
+  expect_identical(out$pending$id, c(4L, 3L))
+  expect_identical(out$pending$card_summary, c("P3 · #1", "P1 · #2"))
+  expect_identical(out$finished$id, c(6L, 5L))
 })
 
 test_that("dashboard_summary_metrics returns slot and completion ratios", {
   dashboard_summary_metrics <- getFromNamespace("dashboard_summary_metrics", "taskr")
 
   tab <- data.frame(
-    id = paste0("task_", 1:5),
-    status = c("running", "queued", "completed", "failed", "cancelled"),
+    id = 1:5,
+    status = c("running", "pending", "completed", "failed", "cancelled"),
     slots = c(3L, 1L, 1L, 1L, 1L),
     stringsAsFactors = FALSE
   )
@@ -70,7 +71,7 @@ test_that("dashboard_summary_metrics returns slot and completion ratios", {
 
   expect_equal(summary$total, 5)
   expect_equal(summary$running, 1)
-  expect_equal(summary$queued, 1)
+  expect_equal(summary$pending, 1)
   expect_equal(summary$completed, 1)
   expect_equal(summary$failed, 1)
   expect_equal(summary$cancelled, 1)
@@ -84,8 +85,8 @@ test_that("dashboard_summary_metrics falls back to running count when slots colu
   dashboard_summary_metrics <- getFromNamespace("dashboard_summary_metrics", "taskr")
 
   tab <- data.frame(
-    id = c("task_001", "task_002"),
-    status = c("running", "queued"),
+    id = c(1L, 2L),
+    status = c("running", "pending"),
     stringsAsFactors = FALSE
   )
 
@@ -95,20 +96,31 @@ test_that("dashboard_summary_metrics falls back to running count when slots colu
   expect_equal(summary$slot_ratio, 0.25)
 })
 
+test_that("dashboard status classes encode task state borders", {
+  dashboard_card_class <- getFromNamespace("dashboard_card_class", "taskr")
+
+  expect_match(dashboard_card_class("pending"), "task-card-pending", fixed = TRUE)
+  expect_match(dashboard_card_class("running"), "task-card-running", fixed = TRUE)
+  expect_match(dashboard_card_class("completed"), "task-card-completed", fixed = TRUE)
+  expect_match(dashboard_card_class("failed"), "task-card-failed", fixed = TRUE)
+  expect_match(dashboard_card_class("cancelled"), "task-card-failed", fixed = TRUE)
+  expect_match(dashboard_card_class("canceling"), "task-card-failed", fixed = TRUE)
+})
+
 test_that("filter_dashboard_tasks matches id and label case-insensitively", {
   filter_dashboard_tasks <- getFromNamespace("filter_dashboard_tasks", "taskr")
 
   tab <- data.frame(
-    id = c("task_001", "task_002"),
+    id = c(1L, 2L),
     label = c("Fit_Main", "pilot"),
     stringsAsFactors = FALSE
   )
 
   out_a <- filter_dashboard_tasks(tab, query = "fit")
-  out_b <- filter_dashboard_tasks(tab, query = "002")
+  out_b <- filter_dashboard_tasks(tab, query = "2")
 
-  expect_identical(out_a$id, "task_001")
-  expect_identical(out_b$id, "task_002")
+  expect_identical(out_a$id, 1L)
+  expect_identical(out_b$id, 2L)
 })
 
 test_that("dashboard_log_text returns readable output/error tail blocks", {
@@ -121,7 +133,7 @@ test_that("dashboard_log_text returns readable output/error tail blocks", {
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   item <- make_dashboard_item(
-    id = "task_log_001",
+    id = 1L,
     label = "log_demo",
     status = "completed",
     submit_time = Sys.time() - 10,
@@ -131,9 +143,9 @@ test_that("dashboard_log_text returns readable output/error tail blocks", {
   item$stderr_buffer <- paste0("err_1\nerr_2")
 
   pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
-  pkg_env$scheduler$finished <- list(task_log_001 = item)
+  pkg_env$scheduler$finished <- list("1" = item)
 
-  txt <- dashboard_log_text("task_log_001", tail_n = 2)
+  txt <- dashboard_log_text(1L, tail_n = 2)
 
   expect_match(txt, "=== Output \\(latest lines\\) ===")
   expect_match(txt, "line_3")
@@ -159,7 +171,7 @@ test_that("dashboard_state_signature ignores running progress/message-only chang
 
   now <- as.POSIXct("2026-04-10 12:00:00", tz = "UTC")
   tab_a <- data.frame(
-    id = "task_001",
+    id = 1L,
     label = "demo",
     status = "running",
     priority = 1L,
@@ -189,7 +201,7 @@ test_that("dashboard_running_signature reacts to progress, message, and log chan
 
   now <- as.POSIXct("2026-04-10 12:00:00", tz = "UTC")
   tab_a <- data.frame(
-    id = "task_001",
+    id = 1L,
     label = "demo",
     status = "running",
     priority = 1L,
@@ -227,7 +239,7 @@ test_that("dashboard_running_signature reacts when log progress changes", {
 
   now <- as.POSIXct("2026-04-10 12:00:00", tz = "UTC")
   tab_a <- data.frame(
-    id = "task_001",
+    id = 1L,
     label = "demo",
     status = "running",
     priority = 1L,
@@ -255,7 +267,7 @@ test_that("dashboard_running_log_signature reacts to running log changes", {
 
   now <- as.POSIXct("2026-04-10 12:00:00", tz = "UTC")
   tab_a <- data.frame(
-    id = "task_001",
+    id = 1L,
     label = "demo",
     status = "running",
     priority = 1L,
@@ -274,8 +286,8 @@ test_that("dashboard_running_log_signature reacts to running log changes", {
   tab_b$stderr <- "warn"
 
   expect_false(identical(
-    dashboard_running_log_signature(tab_a, task_id = "task_001"),
-    dashboard_running_log_signature(tab_b, task_id = "task_001")
+    dashboard_running_log_signature(tab_a, task_id = 1L),
+    dashboard_running_log_signature(tab_b, task_id = 1L)
   ))
 })
 
@@ -289,7 +301,7 @@ test_that("dashboard_stan_chain_progress parses chain rows from logs", {
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   item <- make_dashboard_item(
-    id = "task_chain_001",
+    id = 1L,
     label = "model_demo",
     status = "running",
     submit_time = Sys.time() - 10,
@@ -302,9 +314,9 @@ test_that("dashboard_stan_chain_progress parses chain rows from logs", {
   )
 
   pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
-  pkg_env$scheduler$running <- list(task_chain_001 = item)
+  pkg_env$scheduler$running <- list("1" = item)
 
-  tab <- dashboard_stan_chain_progress("task_chain_001")
+  tab <- dashboard_stan_chain_progress(1L)
 
   expect_equal(nrow(tab), 2)
   expect_identical(tab$chain, c(1L, 2L))
@@ -352,7 +364,7 @@ test_that("dashboard_stan_chain_progress sees logs consumed by task status updat
   fake_task$error <- NULL
 
   item <- make_dashboard_item(
-    id = "task_sync_001",
+    id = 1L,
     label = "sync_demo",
     status = "running",
     submit_time = Sys.time() - 10,
@@ -361,10 +373,10 @@ test_that("dashboard_stan_chain_progress sees logs consumed by task status updat
   item$task <- fake_task
 
   pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
-  pkg_env$scheduler$running <- list(task_sync_001 = item)
+  pkg_env$scheduler$running <- list("1" = item)
   pkg_env$scheduler <- recycle_running_tasks(pkg_env$scheduler, now = Sys.time())
 
-  tab <- dashboard_stan_chain_progress("task_sync_001")
+  tab <- dashboard_stan_chain_progress(1L)
   expect_equal(nrow(tab), 2)
   expect_identical(tab$chain, c(1L, 2L))
   expect_equal(round(tab$progress, 2), c(0.50, 0.90))
@@ -502,7 +514,7 @@ test_that("dashboard_parse_task_progress returns generic parsed fraction when no
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   item <- make_dashboard_item(
-    id = "task_generic_001",
+    id = 1L,
     label = "generic_demo",
     status = "running",
     submit_time = Sys.time() - 8,
@@ -511,9 +523,9 @@ test_that("dashboard_parse_task_progress returns generic parsed fraction when no
   item$stdout_buffer <- "Epoch 3/10"
 
   pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
-  pkg_env$scheduler$running <- list(task_generic_001 = item)
+  pkg_env$scheduler$running <- list("1" = item)
 
-  out <- dashboard_parse_task_progress("task_generic_001")
+  out <- dashboard_parse_task_progress(1L)
   expect_equal(nrow(out$chain), 0)
   expect_equal(out$fraction, 0.3)
 })
@@ -536,7 +548,7 @@ test_that("running task card hides message row when message is NA", {
   running_task_card_ui <- getFromNamespace("running_task_card_ui", "taskr")
 
   task <- data.frame(
-    id = "task_001",
+    id = 1L,
     label = "demo",
     status = "running",
     running_elapsed = "5s",
@@ -546,6 +558,8 @@ test_that("running task card hides message row when message is NA", {
     priority = 1L,
     submit_time_label = "04-11 00:00:00",
     end_time_label = "-",
+    card_title = "1: demo",
+    card_summary = "5s",
     error = "",
     stringsAsFactors = FALSE
   )
@@ -566,7 +580,7 @@ test_that("task card action buttons do not create duplicate Shiny input ids", {
   running_task_card_ui <- getFromNamespace("running_task_card_ui", "taskr")
 
   task <- data.frame(
-    id = "task_001",
+    id = 1L,
     label = "demo",
     status = "running",
     running_elapsed = "5s",
@@ -576,6 +590,8 @@ test_that("task card action buttons do not create duplicate Shiny input ids", {
     priority = 1L,
     submit_time_label = "04-11 00:00:00",
     end_time_label = "-",
+    card_title = "1: demo",
+    card_summary = "5s",
     error = "",
     stringsAsFactors = FALSE
   )
@@ -588,52 +604,60 @@ test_that("task card action buttons do not create duplicate Shiny input ids", {
   )
   html <- as.character(ui)
 
-  expect_false(grepl('id="select_task_001"', html, fixed = TRUE))
-  expect_false(grepl('id="cancel_task_001"', html, fixed = TRUE))
+  expect_false(grepl('id="select_1"', html, fixed = TRUE))
+  expect_false(grepl('id="cancel_1"', html, fixed = TRUE))
   expect_true(grepl('data-taskr-action="select"', html, fixed = TRUE))
   expect_true(grepl('data-taskr-action="cancel"', html, fixed = TRUE))
   expect_false(grepl('data-taskr-action="remove"', html, fixed = TRUE))
-  expect_true(grepl('data-taskr-task-id="task_001"', html, fixed = TRUE))
+  expect_true(grepl('data-taskr-task-id="1"', html, fixed = TRUE))
 })
 
-test_that("queued cards hide remove actions and finished cards expose them", {
+test_that("pending cards hide remove actions and finished cards expose them", {
   skip_if_not_installed("shiny")
 
-  queued_task_card_ui <- getFromNamespace("queued_task_card_ui", "taskr")
+  pending_task_card_ui <- getFromNamespace("pending_task_card_ui", "taskr")
   finished_task_card_ui <- getFromNamespace("finished_task_card_ui", "taskr")
 
-  queued <- data.frame(
-    id = "task_queued",
+  pending <- data.frame(
+    id = 1L,
     label = "queued_demo",
-    status = "queued",
+    status = "pending",
     queue_wait = "2s",
     priority = 1L,
     submit_time_label = "04-11 00:00:00",
     start_time_label = "-",
     end_time_label = "-",
+    card_title = "1: queued_demo",
+    card_summary = "P1 · #1",
     error = "",
     stringsAsFactors = FALSE
   )
   finished <- data.frame(
-    id = "task_failed",
+    id = 2L,
     label = "failed_demo",
     status = "failed",
     priority = 1L,
     submit_time_label = "04-11 00:00:00",
     start_time_label = "04-11 00:00:01",
     end_time_label = "04-11 00:00:02",
+    card_title = "2: failed_demo",
+    card_summary = "1s",
     error = "boom",
     stringsAsFactors = FALSE
   )
 
-  queued_html <- as.character(queued_task_card_ui(queued[1, , drop = FALSE]))
+  queued_html <- as.character(pending_task_card_ui(pending[1, , drop = FALSE]))
   finished_html <- as.character(finished_task_card_ui(finished[1, , drop = FALSE]))
 
   expect_false(grepl('data-taskr-action="remove"', queued_html, fixed = TRUE))
   expect_true(grepl('data-taskr-action="cancel"', queued_html, fixed = TRUE))
+  expect_true(grepl("P1 · #1", queued_html, fixed = TRUE))
+  expect_true(grepl("Submitted: 04-11 00:00:00", queued_html, fixed = TRUE))
+  expect_false(grepl("Priority:", queued_html, fixed = TRUE))
+  expect_false(grepl("Waiting:", queued_html, fixed = TRUE))
   expect_true(grepl('data-taskr-action="remove"', finished_html, fixed = TRUE))
-  expect_true(grepl('data-taskr-task-id="task_queued"', queued_html, fixed = TRUE))
-  expect_true(grepl('data-taskr-task-id="task_failed"', finished_html, fixed = TRUE))
+  expect_true(grepl('data-taskr-task-id="1"', queued_html, fixed = TRUE))
+  expect_true(grepl('data-taskr-task-id="2"', finished_html, fixed = TRUE))
 })
 
 test_that("dashboard custom message handlers use Shiny-compatible signatures", {

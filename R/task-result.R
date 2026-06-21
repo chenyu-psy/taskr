@@ -1,29 +1,21 @@
 # Task Result API (User-Facing)
 #
 # Purpose:
-# - Provide a blocking result reader for one task selected by id or label.
+# - Provide a blocking result reader for one task selected by id.
 
-validate_id_or_label <- function(id_or_label) {
-  if (!is.character(id_or_label) || length(id_or_label) != 1 || is.na(id_or_label) || !nzchar(id_or_label)) {
-    stop("`id_or_label` must be a single non-empty character string.")
-  }
-
-  invisible(NULL)
-}
-
-#' Read the Result of a Task by Id or Label
+#' Read the Result of a Task by Id
 #'
 #' Purpose:
 #' - Block until one task reaches a terminal state and return its result.
 #'
-#' @param id_or_label Task id or label used to identify one task.
+#' @param id Numeric task id used to identify one task.
 #' @return The stored task result object, or `NULL` when output saving is off.
 #' @examples
 #' init_queue(max_slots = 1)
-#' # get_task_result("task_001")
+#' # get_task_result(1)
 #' @export
-get_task_result <- function(id_or_label) {
-  validate_id_or_label(id_or_label)
+get_task_result <- function(id) {
+  id <- normalize_task_id(id)
 
   if (is.null(pkg_env$scheduler)) {
     stop("Queue is not initialized. Call `init_queue()` first.")
@@ -31,16 +23,16 @@ get_task_result <- function(id_or_label) {
 
   repeat {
     pkg_env$scheduler <- update_queue(pkg_env$scheduler)
-    match <- resolve_task_reference(pkg_env$scheduler, id_or_label = id_or_label)
+    match <- resolve_task_reference(pkg_env$scheduler, id = id)
     item <- if (is.null(match)) NULL else match$item
 
     if (is.null(item)) {
-      stop("Task not found for `id_or_label = ", id_or_label, "`.")
+      stop("Task not found for `id = ", id, "`.")
     }
 
-    status <- item$status %||% "queued"
+    status <- item$status %||% "pending"
 
-    if (status %in% c("queued", "running")) {
+    if (status %in% c("pending", "running")) {
       Sys.sleep(0.05)
       next
     }

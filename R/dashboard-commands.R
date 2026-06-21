@@ -72,7 +72,7 @@ dashboard_cancel_dir <- function() {
 # Returns:
 # - Character path for the task-specific marker file.
 dashboard_cancel_marker_path <- function(task_id, cancel_dir = dashboard_cancel_dir()) {
-  validate_id_or_label(task_id)
+  task_id <- task_id_key(task_id)
   file.path(cancel_dir, paste0(task_id, ".json"))
 }
 
@@ -85,6 +85,7 @@ dashboard_cancel_marker_path <- function(task_id, cancel_dir = dashboard_cancel_
 # Side effects:
 # - Writes one small JSON marker file atomically.
 write_dashboard_cancel_marker <- function(task_id, cancel_dir = dashboard_cancel_dir()) {
+  task_id <- normalize_task_id(task_id)
   path <- dashboard_cancel_marker_path(task_id = task_id, cancel_dir = cancel_dir)
   payload <- list(
     task_id = task_id,

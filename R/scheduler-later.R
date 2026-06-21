@@ -17,7 +17,7 @@ scheduler_has_work <- function(state) {
     return(FALSE)
   }
 
-  length(state$queue %||% list()) > 0 || length(state$running %||% list()) > 0
+  length(state$pending %||% list()) > 0 || length(state$running %||% list()) > 0
 }
 
 schedule_next_tick <- function() {

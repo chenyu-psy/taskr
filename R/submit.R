@@ -216,11 +216,10 @@ normalize_submit_call_output <- function(output = "none") {
 }
 
 next_task_id <- function(state) {
-  sprintf("task_%03d", as.integer(state$next_id))
+  as.integer(state$next_id)
 }
 
-append_queued_task <- function(state, item) {
-  validate_unique_label(state, item$label %||% NULL)
+append_pending_task <- function(state, item) {
   requested_slots <- as.integer(item$resources$slots %||% 1L)
   capacity_slots <- as.integer(state$capacity$slots %||% 1L)
   if (requested_slots > capacity_slots) {
@@ -230,12 +229,8 @@ append_queued_task <- function(state, item) {
     )
   }
 
-  state$queue[[length(state$queue) + 1L]] <- item
+  state$pending[[length(state$pending) + 1L]] <- item
   state$next_id <- as.integer(state$next_id) + 1L
-
-  if (!is.null(item$label)) {
-    state$label_index[[item$label]] <- item$id
-  }
 
   state
 }
@@ -432,7 +427,7 @@ build_task_item <- function(
     save_result = save_result,
     import = import,
     context = context,
-    status = "queued",
+    status = "pending",
     submit_time = Sys.time(),
     start_time = as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC"),
     end_time = as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC"),
@@ -514,7 +509,7 @@ submit_code <- function(
     context = context
   )
 
-  pkg_env$scheduler <- append_queued_task(pkg_env$scheduler, item)
+  pkg_env$scheduler <- append_pending_task(pkg_env$scheduler, item)
   pkg_env$scheduler <- update_queue(pkg_env$scheduler)
   if (scheduler_has_work(pkg_env$scheduler)) {
     start_scheduler()
@@ -585,7 +580,7 @@ submit_task <- function(
     context = context
   )
 
-  pkg_env$scheduler <- append_queued_task(pkg_env$scheduler, item)
+  pkg_env$scheduler <- append_pending_task(pkg_env$scheduler, item)
   pkg_env$scheduler <- update_queue(pkg_env$scheduler)
   if (scheduler_has_work(pkg_env$scheduler)) {
     start_scheduler()
