@@ -99,6 +99,16 @@ task_tmpfile <- function(id) {
   file.path(pkg_env$tempdir, paste0(id, ".rds"))
 }
 
+task_status_file <- function(id) {
+  id <- task_id_key(id)
+
+  if (is.null(pkg_env$tempdir) || !nzchar(pkg_env$tempdir)) {
+    stop("Package temp directory has not been initialized.")
+  }
+
+  file.path(pkg_env$tempdir, paste0(id, "-status.rds"))
+}
+
 #' Register a task for package-level cleanup.
 #'
 #' Purpose:

@@ -100,6 +100,83 @@ test_that("integration: output none completes when user code saves an external r
   )
 })
 
+test_that("integration: submit_task output none completes without a result file", {
+  skip_if_not_installed("callr")
+  get_task_overview <- getFromNamespace("get_task_overview", "taskr")
+  get_task_result <- getFromNamespace("get_task_result", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  on.exit(taskr::shutdown_queue(), add = TRUE)
+
+  taskr::submit_task(
+    fun = function(x) x + 1L,
+    args = list(x = 41L),
+    label = "int_call_none",
+    resources = list(slots = 1L),
+    output = "none"
+  )
+
+  expect_true(wait_for_task_status(get_task_overview, "int_call_none", "completed", timeout = 15))
+  task_id <- task_id_for_label(get_task_overview, "int_call_none")
+  expect_warning(
+    expect_null(get_task_result(task_id)),
+    "output = \"none\""
+  )
+})
+
+test_that("integration: brms cmdstanr output none completes after model file save", {
+  skip_if_not_installed("callr")
+  skip_if_not_installed("brms")
+  if (!requireNamespace("cmdstanr", quietly = TRUE)) {
+    skip("cmdstanr is not installed.")
+  }
+  cmdstan_version <- get("cmdstan_version", envir = asNamespace("cmdstanr"))(error_on_NA = FALSE)
+  if (length(cmdstan_version) == 0 || is.na(cmdstan_version)) {
+    skip("CmdStan is not installed.")
+  }
+
+  get_task_overview <- getFromNamespace("get_task_overview", "taskr")
+
+  taskr::shutdown_queue()
+  taskr::init_queue(max_slots = 1)
+  model_file <- tempfile(pattern = "taskr-brms-cmdstanr-")
+  on.exit({
+    taskr::shutdown_queue()
+    unlink(paste0(model_file, ".rds"), force = TRUE)
+  }, add = TRUE)
+
+  tiny_data <- data.frame(y = c(-0.2, 0.1, 0.3, -0.1, 0.2, 0.0))
+  taskr::submit_task(
+    fun = brms::brm,
+    args = list(
+      formula = y ~ 1,
+      data = tiny_data,
+      backend = "cmdstanr",
+      chains = 1L,
+      cores = 1L,
+      iter = 20L,
+      warmup = 10L,
+      seed = 1234L,
+      refresh = 0L,
+      file = model_file,
+      file_refit = "always"
+    ),
+    label = "int_brms_cmdstanr_none",
+    resources = list(slots = 1L),
+    import = list(packages = "brms", workdir = getwd()),
+    output = "none"
+  )
+
+  expect_true(wait_for_task_status(
+    get_task_overview,
+    "int_brms_cmdstanr_none",
+    "completed",
+    timeout = 120
+  ))
+  expect_true(file.exists(paste0(model_file, ".rds")))
+})
+
 test_that("integration: submit_task output filtering works end-to-end", {
   skip_if_not_installed("callr")
   get_task_overview <- getFromNamespace("get_task_overview", "taskr")
