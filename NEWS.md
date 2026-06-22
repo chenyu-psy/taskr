@@ -1,5 +1,7 @@
 # taskr 0.3.0
 
+- Rewrote `README.md` around a dashboard-first user workflow and refreshed the
+  dashboard screenshots.
 - Switched task identity to simple numeric ids. Public task operations now use
   task ids instead of labels; labels remain display and filtering metadata.
 - Renamed waiting task status from `queued` to `pending`.
