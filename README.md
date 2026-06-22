@@ -1,160 +1,181 @@
-# Overview
+# taskr
 
-`taskr` helps you run long R computations without locking up the interactive
-console. You submit code or function calls to a queue, and `taskr` runs them in
-separate R processes while you keep working in the main session.
+[![R-CMD-check](https://github.com/chenyu-psy/taskr/actions/workflows/r-cmd-check.yml/badge.svg?branch=develop)](https://github.com/chenyu-psy/taskr/actions/workflows/r-cmd-check.yml)
 
-`taskr` is inspired by the same idea as
-[`job`](https://github.com/lindeloev/job): move long computations out of the
-main console. In practice, `job` depends on `rstudioapi`, which makes it hard to
-use in newer IDEs such as Positron. `taskr` takes that background-computation
-workflow and adds an explicit queue for managing many tasks at once.
+`taskr` runs long R computations in background R processes and gives you a
+session-local queue for monitoring and managing them from a Shiny dashboard.
 
-With `taskr`, you can set how many task slots your session should use, submit
-many tasks at once, and let the queue start them as capacity becomes available.
-The built-in dashboard shows what is pending, running, and finished, and gives
-you simple controls for cancellation, cleanup, logs, and results.
+Use it when model fits, simulations, batch jobs, or other slow work would
+otherwise lock up your interactive R console. Submit the work, keep using the
+main session, and watch the queue from the dashboard.
 
-The queue is session-local and temporary by design. Restarting R clears queue
-state and task records.
+The queue is intentionally temporary. Restarting R clears queue state, task
+records, and stored task results.
 
-# Installation
+## Installation
 
-Install from GitHub:
+Install the development version from GitHub:
 
 ```r
 install.packages("remotes")
 remotes::install_github("chenyu-psy/taskr")
 ```
 
-# Quick Start
+## Quick Start
 
-The fastest way to understand `taskr` is to run one complete workflow:
-initialize queue capacity, submit work, monitor progress, retrieve outputs, and
-clean up.
-
-## Step 1: Initialize the Queue
-
-`max_slots` is the total concurrency budget for the session.  
-Higher values run more tasks at once, but also increase CPU and memory load.
+Start a queue, submit a task, and use the dashboard to watch it run.
 
 ```r
 library(taskr)
-init_queue(max_slots = 3)
+
+init_queue(max_slots = 2)
+
+submit_task(
+  fun = function(n) {
+    Sys.sleep(5)
+    mean(rnorm(n))
+  },
+  args = list(n = 10000),
+  label = "demo_mean",
+  output = "all"
+)
 ```
 
-## Step 2: Submit Work
+After submission, the dashboard shows the task moving through the queue:
 
-Use `submit_code()` for quick inline code blocks.  
-Use `submit_task()` when you already have a function plus explicit arguments.
+![Quick start dashboard](inst/images/dashboard-panels/quick-start-dashboard.png)
+
+In interactive sessions, `taskr` opens the dashboard automatically after you
+submit work. The dashboard is the recommended way to check whether tasks are
+`pending`, `running`, `completed`, `failed`, or `cancelled`; inspect logs; cancel
+or remove tasks; and clean finished records.
+
+If you saved a return value with `output = "all"`, use the numeric task id from
+the dashboard or from `get_task_overview()` to read it back:
+
+```r
+tasks <- get_task_overview(label = "demo_mean")
+get_task_result(tasks$id[1])
+```
+
+When you are done with the whole queue, call:
+
+```r
+shutdown_queue()
+```
+
+## Submit Work
+
+Most workflows start with `init_queue(max_slots = ...)`, where `max_slots` is
+the session-level concurrency budget. A task can request one or more slots, and
+the queue starts pending work as capacity becomes available.
+
+Choose the submission helper that matches how your work is written:
+
+| Situation | Use |
+| --- | --- |
+| You want to run a short inline expression | `submit_code()` |
+| You already have a function and arguments | `submit_task()` |
+| You want to submit many calls from a grid | `map_tasks()` |
+
+Useful submission options:
+
+- `label` gives a task a readable dashboard name. Labels are display and search
+  metadata; task control uses numeric ids.
+- `priority` lets more important pending tasks run earlier.
+- `resources = list(slots = 2L)` reserves more of the queue capacity for a task.
+- `import` controls which objects, packages, environment variables, and working
+  directory are available in the child process.
+- `output = "none"` is the default and avoids copying large return values into
+  taskr storage. Use `output = "all"` when you want `get_task_result()` to return
+  the task value later.
+
+For quick inline work, use `submit_code()`:
 
 ```r
 submit_code(
   expr = {
-    Sys.sleep(10)
-    "completed"
+    Sys.sleep(3)
+    "done"
   },
-  label = "demo_code"
-)
-
-submit_task(
-  fun = function(n) {
-    Sys.sleep(6)
-    mean(rnorm(n))
-  },
-  args = list(n = 10000),
-  label = "demo_function",
-  resources = list(slots = 2L)
+  label = "demo_code",
+  output = "all"
 )
 ```
 
-`resources$slots` is checked against `max_slots`.  
-With `max_slots = 3`, a task requesting `slots = 2` can run, and leaves one
-remaining slot for other pending work.
+Use `map_tasks()` when you have many related function calls from a parameter
+grid; see `?map_tasks` for details.
 
-## Step 3: Monitor Task State
+## Monitor With the Dashboard
 
-After Step 2 submits tasks, `taskr` auto-launches the dashboard in interactive
-sessions. You can use it to watch queue progress and manage tasks (for example,
-cancel tasks or clean finished records). See [Dashboard Panels](#dashboard-panels)
-for panel-by-panel details.
+The dashboard is the main interface for routine monitoring and control. It
+opens in the IDE Viewer pane when available; if it does not appear, copy the
+dashboard URL printed in the console into a browser. You can also reopen it with
+`launch_dashboard()`.
 
-If you prefer code-based monitoring, use:
+![Dashboard overview](inst/images/dashboard-panels/overview.png)
 
-```r
-get_task_overview()
-get_task_overview(status = "running")
-```
+From the dashboard, you can:
 
-## Step 4: Read Outputs
+- see slot usage and terminal-task progress;
+- search tasks by id or label;
+- inspect pending, running, completed, failed, and cancelled tasks;
+- open task details and logs;
+- cancel active work, remove individual task cards, or clean finished records.
 
-Use logs for runtime diagnostics and results for final outputs.
+These dashboard controls correspond to the same task-control API available from
+R code, such as `cancel_task()`, `remove_task()`, and `clean_tasks()`.
 
-```r
-get_task_log("demo_code")
-get_task_result("demo_function")
-```
+### Running
 
-# Dashboard Panels
-
-In most interactive sessions, the dashboard appears automatically after you
-submit tasks, so you can monitor progress right away. You can also call
-`launch_dashboard()` manually if needed.
-
-The dashboard opens in the IDE Viewer pane when available. If it does not
-appear, check whether the Viewer pane is hidden, or copy the dashboard URL
-printed in the console into a web browser.
-
-## Overview
-
-The dashboard gives a single view of the current queue. It separates running,
-pending, and finished tasks so you can quickly see what is happening without
-polling the console.
-
-![Dashboard overview](inst/images/dashboard-panels/overview.jpg)
-
-## Summary Panel
-
-The summary area reports overall queue state. Slot usage shows how much of the
-configured capacity is currently occupied, and completion progress shows how
-many submitted tasks have reached a terminal state. The search box filters task
-cards by id or label across the dashboard.
+The running panel shows tasks that are actively using queue slots. Each card
+shows the task id and label, an elapsed-time badge, and any progress rows the
+task reports. Open details to inspect logs while the task is still running, or
+cancel the task from the card when it should stop early.
 
 <p align="center">
-  <img src="inst/images/dashboard-panels/summary-panel.jpg" alt="Summary panel" width="50%">
+  <img src="inst/images/dashboard-panels/running-panel.png" alt="Running panel" width="75%">
 </p>
 
-## Running Panel
+### Pending
 
-The running panel lists tasks that are currently executing. Each card reports
-elapsed time, current status, and the latest progress signal when available.
-Task details expand inline, and running tasks can be cancelled from the card.
+The pending panel shows submitted tasks that are waiting for enough free slots.
+Badges summarize priority and queue position, and each card keeps the submitted
+time visible so you can see why a task has not started yet. Pending tasks can be
+cancelled before they start.
 
 <p align="center">
-  <img src="inst/images/dashboard-panels/running-panel.jpg" alt="Running panel" width="50%">
+  <img src="inst/images/dashboard-panels/pending-panel.png" alt="Pending panel" width="75%">
 </p>
 
-## Pending Panel
+### Finished
 
-The pending panel lists tasks that are waiting for available slots. Tasks are
-ordered by priority and submit time, which makes it easier to understand why a
-task has not started yet.
+The finished panel keeps completed, failed, and cancelled records together.
+Status filters help you focus on failures or cancellations, the duration badge
+shows how long a terminal task took, and details remain available for review.
+Remove individual records from their cards, or clean finished records when the
+dashboard no longer needs to show them.
 
 <p align="center">
-  <img src="inst/images/dashboard-panels/pending-panel.jpg" alt="Pending panel" width="50%">
+  <img src="inst/images/dashboard-panels/finished-panel.png" alt="Finished panel" width="75%">
 </p>
 
-## Finished Panel
+## Use R Code When Needed
 
-The finished panel keeps completed, failed, and cancelled tasks together. Status
-filters help focus on failures or cancellations, and cleanup actions remove
-finished records once they are no longer needed.
+The dashboard covers most interactive monitoring. Use the R helpers when you
+are scripting, testing, or integrating taskr into another workflow:
 
-<p align="center">
-  <img src="inst/images/dashboard-panels/finished-panel.jpg" alt="Finished panel" width="50%">
-</p>
+| Goal | Functions to read |
+| --- | --- |
+| Start or reset a queue | `init_queue()`, `shutdown_queue()` |
+| Submit work | `submit_code()`, `submit_task()`, `map_tasks()` |
+| Open the visual monitor | `launch_dashboard()` |
+| Inspect state or outputs from R | `get_task_overview()`, `get_task_log()`, `get_task_result()`, `report_progress()` |
+| Script task control or cleanup | `cancel_task()`, `remove_task()`, `clean_tasks()` |
 
-# Status
+Run `?function_name` in R for argument details and edge cases.
 
-`taskr` is under active development. Feedback and contributions are welcome.
-Before the first stable release, function names and parameters may change.
+## Status
+
+`taskr` is pre-stable and under active development. Function names, arguments,
+and dashboard behavior may still change before `1.0.0`.

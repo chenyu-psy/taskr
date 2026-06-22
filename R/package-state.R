@@ -90,15 +90,23 @@ pkg_env <- new.env(parent = emptyenv())
 #'
 #' @keywords internal
 task_tmpfile <- function(id) {
-  if (!is.character(id) || length(id) != 1 || is.na(id) || !nzchar(id)) {
-    stop("`id` must be a single non-empty character string.")
-  }
+  id <- task_id_key(id)
 
   if (is.null(pkg_env$tempdir) || !nzchar(pkg_env$tempdir)) {
     stop("Package temp directory has not been initialized.")
   }
 
   file.path(pkg_env$tempdir, paste0(id, ".rds"))
+}
+
+task_status_file <- function(id) {
+  id <- task_id_key(id)
+
+  if (is.null(pkg_env$tempdir) || !nzchar(pkg_env$tempdir)) {
+    stop("Package temp directory has not been initialized.")
+  }
+
+  file.path(pkg_env$tempdir, paste0(id, "-status.rds"))
 }
 
 #' Register a task for package-level cleanup.
@@ -116,7 +124,7 @@ task_tmpfile <- function(id) {
 #' @keywords internal
 register_active_task <- function(task) {
   if (!is.null(pkg_env$active_tasks)) {
-    assign(task$id, task, envir = pkg_env$active_tasks)
+    assign(task_id_key(task$id), task, envir = pkg_env$active_tasks)
   }
 
   invisible(task)
@@ -135,6 +143,7 @@ register_active_task <- function(task) {
 #'
 #' @keywords internal
 unregister_active_task <- function(id) {
+  id <- task_id_key(id)
   if (!is.null(pkg_env$active_tasks) && exists(id, envir = pkg_env$active_tasks, inherits = FALSE)) {
     rm(list = id, envir = pkg_env$active_tasks)
   }

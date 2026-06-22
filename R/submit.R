@@ -145,7 +145,24 @@ resolve_submit_context <- function(import = "auto", expr = NULL, fun = NULL) {
   )
 }
 
-normalize_submit_task_output <- function(output = "all") {
+#' Normalize output policy for expression tasks.
+#'
+#' Purpose:
+#' - Convert the user-facing `output` choice into the stored policy used by
+#'   task submission.
+#'
+#' Parameters:
+#' - `output`: `"none"` to skip result storage or `"all"` to save the full
+#'   expression value.
+#'
+#' Returns:
+#' - A list with `output` and `save_result` fields.
+#'
+#' Assumptions and side effects:
+#' - Does not inspect or evaluate the task expression.
+#'
+#' @keywords internal
+normalize_submit_task_output <- function(output = "none") {
   if (!is.character(output) || length(output) != 1 || is.na(output)) {
     stop("`output` must be one of: \"all\" or \"none\".")
   }
@@ -160,7 +177,25 @@ normalize_submit_task_output <- function(output = "all") {
   )
 }
 
-normalize_submit_call_output <- function(output = "all") {
+#' Normalize output policy for function-call tasks.
+#'
+#' Purpose:
+#' - Convert the user-facing `output` choice into result-saving and optional
+#'   field-filtering instructions.
+#'
+#' Parameters:
+#' - `output`: `"none"` to skip result storage, `"all"` to save the full
+#'   return value, or a character vector of fields to keep from a named list.
+#'
+#' Returns:
+#' - A list with `output`, `save_result`, and `field_filter` fields.
+#'
+#' Assumptions and side effects:
+#' - Field names are only validated here; the actual returned object is checked
+#'   after the child task runs.
+#'
+#' @keywords internal
+normalize_submit_call_output <- function(output = "none") {
   if (!is.character(output) || length(output) < 1 || any(is.na(output)) || any(!nzchar(output))) {
     stop("`output` must be \"all\", \"none\", or a non-empty character vector.")
   }
@@ -181,11 +216,10 @@ normalize_submit_call_output <- function(output = "all") {
 }
 
 next_task_id <- function(state) {
-  sprintf("task_%03d", as.integer(state$next_id))
+  as.integer(state$next_id)
 }
 
-append_queued_task <- function(state, item) {
-  validate_unique_label(state, item$label %||% NULL)
+append_pending_task <- function(state, item) {
   requested_slots <- as.integer(item$resources$slots %||% 1L)
   capacity_slots <- as.integer(state$capacity$slots %||% 1L)
   if (requested_slots > capacity_slots) {
@@ -195,12 +229,8 @@ append_queued_task <- function(state, item) {
     )
   }
 
-  state$queue[[length(state$queue) + 1L]] <- item
+  state$pending[[length(state$pending) + 1L]] <- item
   state$next_id <- as.integer(state$next_id) + 1L
-
-  if (!is.null(item$label)) {
-    state$label_index[[item$label]] <- item$id
-  }
 
   state
 }
@@ -397,7 +427,7 @@ build_task_item <- function(
     save_result = save_result,
     import = import,
     context = context,
-    status = "queued",
+    status = "pending",
     submit_time = Sys.time(),
     start_time = as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC"),
     end_time = as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC"),
@@ -434,14 +464,15 @@ build_task_item <- function(
 #' @param resources Resource declaration list. v0.4 uses `list(slots = 1)`.
 #' @param import Task context import mode. Use `"auto"` (default), `"none"`,
 #'   or `list(env = ..., packages = ..., workdir = ..., vars = ...)`.
-#' @param output Either `"all"` or `"none"`. `"none"` skips result file
-#'   saving.
+#' @param output Either `"none"` or `"all"`. `"none"` skips result file
+#'   saving and is the default. Use `"all"` when you need
+#'   `get_task_result()` to return the expression value.
 #' @return Invisibly returns `NULL`.
 #' @examples
 #' init_queue(max_slots = 1)
 #' if (interactive() && requireNamespace("callr", quietly = TRUE)) {
 #'   on.exit(shutdown_queue(), add = TRUE)
-#'   submit_code({ 1 + 1 }, label = "toy_expr")
+#'   submit_code({ 1 + 1 }, label = "toy_expr", output = "all")
 #' }
 #' @export
 submit_code <- function(
@@ -450,7 +481,7 @@ submit_code <- function(
     priority = 0L,
     resources = list(slots = 1L),
     import = "auto",
-    output = "all") {
+    output = "none") {
   if (missing(expr)) {
     stop("`expr` is required.")
   }
@@ -478,7 +509,7 @@ submit_code <- function(
     context = context
   )
 
-  pkg_env$scheduler <- append_queued_task(pkg_env$scheduler, item)
+  pkg_env$scheduler <- append_pending_task(pkg_env$scheduler, item)
   pkg_env$scheduler <- update_queue(pkg_env$scheduler)
   if (scheduler_has_work(pkg_env$scheduler)) {
     start_scheduler()
@@ -500,14 +531,14 @@ submit_code <- function(
 #' @param resources Resource declaration list. v0.4 uses `list(slots = 1)`.
 #' @param import Task context import mode. Use `"auto"` (default), `"none"`,
 #'   or `list(env = ..., packages = ..., workdir = ..., vars = ...)`.
-#' @param output `"all"`, `"none"`, or a character vector of result fields to
-#'   keep.
+#' @param output `"none"`, `"all"`, or a character vector of result fields to
+#'   keep. `"none"` skips result file saving and is the default.
 #' @return Invisibly returns `NULL`.
 #' @examples
 #' init_queue(max_slots = 1)
 #' if (interactive() && requireNamespace("callr", quietly = TRUE)) {
 #'   on.exit(shutdown_queue(), add = TRUE)
-#'   submit_task(fun = sum, args = list(1, 2, 3), label = "toy_call")
+#'   submit_task(fun = sum, args = list(1, 2, 3), label = "toy_call", output = "all")
 #' }
 #' @export
 submit_task <- function(
@@ -517,7 +548,7 @@ submit_task <- function(
     priority = 0L,
     resources = list(slots = 1L),
     import = "auto",
-    output = "all") {
+    output = "none") {
   if (missing(fun)) {
     stop("`fun` is required.")
   }
@@ -549,7 +580,7 @@ submit_task <- function(
     context = context
   )
 
-  pkg_env$scheduler <- append_queued_task(pkg_env$scheduler, item)
+  pkg_env$scheduler <- append_pending_task(pkg_env$scheduler, item)
   pkg_env$scheduler <- update_queue(pkg_env$scheduler)
   if (scheduler_has_work(pkg_env$scheduler)) {
     start_scheduler()

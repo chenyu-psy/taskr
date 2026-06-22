@@ -4,25 +4,26 @@ test_that(".onLoad creates a package temp directory", {
 })
 
 test_that("task_tmpfile builds a stable result path from the task id", {
-  path <- taskr:::task_tmpfile("task_001")
+  path <- taskr:::task_tmpfile(1)
 
-  expect_match(path, "task_001[.]rds$")
+  expect_match(path, "1[.]rds$")
   expect_identical(dirname(path), taskr:::pkg_env$tempdir)
 })
 
 test_that("task_tmpfile validates the id input", {
-  expect_error(taskr:::task_tmpfile(""), "single non-empty character string")
-  expect_error(taskr:::task_tmpfile(NA_character_), "single non-empty character string")
+  expect_error(taskr:::task_tmpfile(""), "positive integer")
+  expect_error(taskr:::task_tmpfile(NA_character_), "positive integer")
+  expect_error(taskr:::task_tmpfile(1.5), "positive integer")
 })
 
 test_that("register_active_task and unregister_active_task update package state", {
-  task <- taskr:::Task$new(id = "task_state_001")
+  task <- taskr:::Task$new(id = 1)
 
   taskr:::register_active_task(task)
-  expect_true(exists("task_state_001", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
+  expect_true(exists("1", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
 
-  taskr:::unregister_active_task("task_state_001")
-  expect_false(exists("task_state_001", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
+  taskr:::unregister_active_task(1)
+  expect_false(exists("1", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
 })
 
 test_that("cleanup_active_tasks kills tracked tasks", {
@@ -37,7 +38,7 @@ test_that("cleanup_active_tasks kills tracked tasks", {
   )
 
   task <- taskr:::Task$new(
-    id = "task_state_002",
+    id = 2,
     process = fake_process,
     status = "running"
   )
@@ -46,7 +47,7 @@ test_that("cleanup_active_tasks kills tracked tasks", {
   taskr:::cleanup_active_tasks()
 
   expect_equal(task$status(), "cancelled")
-  expect_false(exists("task_state_002", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
+  expect_false(exists("2", envir = taskr:::pkg_env$active_tasks, inherits = FALSE))
 })
 
 test_that("read_task_result_file returns stored results", {
@@ -80,7 +81,7 @@ test_that(".onUnload kills tracked tasks and removes the temp directory", {
     }
   )
   task <- taskr:::Task$new(
-    id = "task_state_003",
+    id = 3,
     process = fake_process,
     status = "running"
   )

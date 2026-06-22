@@ -13,6 +13,8 @@
 #' Parameters:
 #' - `expr`: User expression to run in the child process.
 #' - `result_path`: Optional file path where the child should save its result.
+#' - `status_path`: Optional file path where the child should write task
+#'   lifecycle status markers.
 #' - `imports`: Named list of objects to assign into the child global
 #'   environment before evaluating `expr`.
 #' - `packages`: Optional character vector of package names to load in the
@@ -26,6 +28,7 @@
 #' Assumptions and side effects:
 #' - The expression is evaluated in the child process, not in the caller.
 #' - When `result_path` is provided, the child writes one `.rds` file.
+#' - When `status_path` is provided, the child writes one status marker file.
 #' - Package loading, working directory changes, and environment variable
 #'   updates happen in the child process only.
 #'
@@ -33,6 +36,7 @@
 build_task_expr <- function(
     expr,
     result_path = NULL,
+    status_path = NULL,
     imports = list(),
     packages = NULL,
     workdir = NULL,
@@ -40,6 +44,12 @@ build_task_expr <- function(
   if (!is.null(result_path)) {
     if (!is.character(result_path) || length(result_path) != 1 || is.na(result_path)) {
       stop("`result_path` must be NULL or a single non-missing character string.")
+    }
+  }
+
+  if (!is.null(status_path)) {
+    if (!is.character(status_path) || length(status_path) != 1 || is.na(status_path)) {
+      stop("`status_path` must be NULL or a single non-missing character string.")
     }
   }
 
@@ -69,6 +79,33 @@ build_task_expr <- function(
   }
 
   bquote({
+    .__taskr_write_status <- function(status, message = NULL) {
+      .__taskr_status_path <- .(status_path)
+      if (is.null(.__taskr_status_path)) {
+        return(invisible(NULL))
+      }
+
+      .__taskr_payload <- list(
+        status = status,
+        message = message,
+        time = Sys.time()
+      )
+      .__taskr_tmp <- paste0(
+        .__taskr_status_path,
+        ".tmp-",
+        Sys.getpid(),
+        "-",
+        as.integer(runif(1, 1, .Machine$integer.max))
+      )
+      saveRDS(.__taskr_payload, .__taskr_tmp)
+      if (!file.rename(.__taskr_tmp, .__taskr_status_path)) {
+        unlink(.__taskr_tmp, force = TRUE)
+        stop("Failed to write task status marker.")
+      }
+
+      invisible(NULL)
+    }
+
     if (length(.(packages)) > 0) {
       for (.__taskr_pkg in .(packages)) {
         library(.__taskr_pkg, character.only = TRUE)
@@ -87,13 +124,20 @@ build_task_expr <- function(
       list2env(.(imports), envir = .GlobalEnv)
     }
 
-    .__taskr_result <- .(expr)
+    tryCatch({
+      .__taskr_write_status("running")
+      .__taskr_result <- .(expr)
 
-    if (!is.null(.(result_path))) {
-      saveRDS(.__taskr_result, .(result_path))
-    }
+      if (!is.null(.(result_path))) {
+        saveRDS(.__taskr_result, .(result_path))
+      }
 
-    invisible(NULL)
+      .__taskr_write_status("completed")
+      invisible(NULL)
+    }, error = function(.__taskr_error) {
+      .__taskr_write_status("failed", conditionMessage(.__taskr_error))
+      stop(.__taskr_error)
+    })
   })
 }
 
@@ -151,12 +195,15 @@ start_task_process <- function(
   } else if (!isTRUE(save_result)) {
     result_path <- NULL
   }
+  status_path <- task_status_file(id)
+  unlink(status_path, force = TRUE)
 
   imports <- resolve_task_imports(import = import)
 
   wrapped_expr <- build_task_expr(
     expr = expr,
     result_path = result_path,
+    status_path = status_path,
     imports = imports,
     packages = packages,
     workdir = workdir,
@@ -179,7 +226,8 @@ start_task_process <- function(
     id = id,
     process = session,
     status = "running",
-    result_path = result_path
+    result_path = result_path,
+    status_path = status_path
   )
   register_active_task(task)
   task

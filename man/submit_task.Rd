@@ -11,7 +11,7 @@ submit_task(
   priority = 0L,
   resources = list(slots = 1L),
   import = "auto",
-  output = "all"
+  output = "none"
 )
 }
 \arguments{
@@ -28,8 +28,8 @@ submit_task(
 \item{import}{Task context import mode. Use \code{"auto"} (default), \code{"none"},
 or \code{list(env = ..., packages = ..., workdir = ..., vars = ...)}.}
 
-\item{output}{\code{"all"}, \code{"none"}, or a character vector of result fields to
-keep.}
+\item{output}{\code{"none"}, \code{"all"}, or a character vector of result fields to
+keep. \code{"none"} skips result file saving and is the default.}
 }
 \value{
 Invisibly returns \code{NULL}.
@@ -44,6 +44,6 @@ Purpose:
 init_queue(max_slots = 1)
 if (interactive() && requireNamespace("callr", quietly = TRUE)) {
   on.exit(shutdown_queue(), add = TRUE)
-  submit_task(fun = sum, args = list(1, 2, 3), label = "toy_call")
+  submit_task(fun = sum, args = list(1, 2, 3), label = "toy_call", output = "all")
 }
 }

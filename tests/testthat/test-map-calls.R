@@ -1,5 +1,5 @@
 collect_scheduler_items_for_test <- function(state) {
-  c(state$queue %||% list(), unname(state$running %||% list()), unname(state$finished %||% list()))
+  c(state$pending %||% list(), unname(state$running %||% list()), unname(state$finished %||% list()))
 }
 
 test_that("map_tasks enqueues one task per data.frame row", {
@@ -150,5 +150,5 @@ test_that("map_tasks fails early when resources exceed queue capacity", {
   )
 
   pkg_env <- getFromNamespace("pkg_env", "taskr")
-  expect_length(pkg_env$scheduler$queue, 0)
+  expect_length(pkg_env$scheduler$pending, 0)
 })

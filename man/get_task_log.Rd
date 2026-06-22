@@ -4,10 +4,10 @@
 \alias{get_task_log}
 \title{Read Captured Logs for One Task}
 \usage{
-get_task_log(id_or_label)
+get_task_log(id)
 }
 \arguments{
-\item{id_or_label}{Task id or label used to identify one task.}
+\item{id}{Numeric task id used to identify one task.}
 }
 \value{
 A named list with \code{id}, \code{label}, \code{status}, \code{stdout}, and \code{stderr}.
@@ -15,10 +15,10 @@ A named list with \code{id}, \code{label}, \code{status}, \code{stdout}, and \co
 \description{
 Purpose:
 \itemize{
-\item Return buffered \code{stdout} and \code{stderr} for a task identified by id or label.
+\item Return buffered \code{stdout} and \code{stderr} for a task identified by id.
 }
 }
 \examples{
 init_queue(max_slots = 1)
-# get_task_log("task_001")
+# get_task_log(1)
 }

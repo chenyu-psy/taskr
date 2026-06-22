@@ -1,6 +1,6 @@
 Package: taskr
 Title: Background Task Queue with Shiny Dashboard for R
-Version: 0.2.1
+Version: 0.3.0
 Authors@R: 
     person(given = "Chenyu",
            family = "Li",
@@ -22,6 +22,7 @@ Imports:
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Suggests: 
+    brms,
     pkgload,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3

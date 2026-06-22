@@ -39,14 +39,14 @@ test_that("start_scheduler schedules when work exists", {
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
-  pkg_env$scheduler$queue <- list(
+  pkg_env$scheduler$pending <- list(
     list(
-      id = "task_later_1",
+      id = 1L,
       label = "later_1",
       resources = list(slots = 1L),
       priority = 0L,
       submit_time = Sys.time(),
-      status = "queued",
+      status = "pending",
       output = "none",
       start_task = function(item) make_later_scripted_task(c("running", "completed"))
     )
@@ -57,7 +57,7 @@ test_that("start_scheduler schedules when work exists", {
   expect_true(is.function(pkg_env$scheduler$scheduler_handle))
 
   wait_for_later_idle(timeout = 0.5)
-  expect_true("task_later_1" %in% names(pkg_env$scheduler$finished))
+  expect_true("1" %in% names(pkg_env$scheduler$finished))
   expect_null(pkg_env$scheduler$scheduler_handle)
 
   stop_scheduler()
@@ -86,14 +86,14 @@ test_that("stop_scheduler clears scheduled handle", {
   on.exit(taskr::shutdown_queue(), add = TRUE)
 
   pkg_env$scheduler <- new_scheduler_state(max_slots = 1)
-  pkg_env$scheduler$queue <- list(
+  pkg_env$scheduler$pending <- list(
     list(
       id = "task_later_2",
       label = "later_2",
       resources = list(slots = 1L),
       priority = 0L,
       submit_time = Sys.time(),
-      status = "queued",
+      status = "pending",
       output = "none",
       start_task = function(item) make_later_scripted_task(c("running", "running"))
     )
