@@ -1,6 +1,6 @@
 Package: taskr
 Title: Background Task Queue with Shiny Dashboard for R
-Version: 0.3.0
+Version: 0.3.1
 Authors@R: 
     person(given = "Chenyu",
            family = "Li",

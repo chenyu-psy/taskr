@@ -17,6 +17,19 @@ new_scheduler_state <- function(max_slots = 1L) {
   )
 }
 
+validate_queue_max_slots <- function(max_slots) {
+  if (!is.numeric(max_slots) || length(max_slots) != 1 || is.na(max_slots)) {
+    stop("`max_slots` must be a single positive integer value.")
+  }
+
+  max_slots <- as.integer(max_slots)
+  if (max_slots < 1L) {
+    stop("`max_slots` must be >= 1.")
+  }
+
+  max_slots
+}
+
 clear_task_tempdir <- function() {
   if (is.null(pkg_env$tempdir) || !dir.exists(pkg_env$tempdir)) {
     return(invisible(NULL))
@@ -59,14 +72,7 @@ ensure_queue_initialized <- function() {
 #' init_queue(max_slots = 2)
 #' @export
 init_queue <- function(max_slots = 1L) {
-  if (!is.numeric(max_slots) || length(max_slots) != 1 || is.na(max_slots)) {
-    stop("`max_slots` must be a single positive integer value.")
-  }
-
-  max_slots <- as.integer(max_slots)
-  if (max_slots < 1L) {
-    stop("`max_slots` must be >= 1.")
-  }
+  max_slots <- validate_queue_max_slots(max_slots)
 
   if (!is.null(pkg_env$scheduler)) {
     shutdown_queue()
@@ -74,6 +80,35 @@ init_queue <- function(max_slots = 1L) {
 
   init_dashboard_ipc(reset_session = TRUE)
   pkg_env$scheduler <- new_scheduler_state(max_slots = max_slots)
+  write_dashboard_snapshot()
+  invisible(NULL)
+}
+
+#' Set Runtime Queue Settings
+#'
+#' Purpose:
+#' - Change queue settings without resetting pending, running, or finished
+#'   tasks.
+#'
+#' @param max_slots Integer number of task slots available at once.
+#' @return Invisibly returns `NULL`.
+#' @examples
+#' init_queue(max_slots = 1)
+#' set_queue(max_slots = 2)
+#' @export
+set_queue <- function(max_slots) {
+  max_slots <- validate_queue_max_slots(max_slots)
+
+  if (is.null(pkg_env$scheduler)) {
+    init_queue(max_slots = max_slots)
+    return(invisible(NULL))
+  }
+
+  pkg_env$scheduler$capacity$slots <- max_slots
+  pkg_env$scheduler <- update_queue(pkg_env$scheduler)
+  if (scheduler_has_work(pkg_env$scheduler)) {
+    start_scheduler()
+  }
   write_dashboard_snapshot()
   invisible(NULL)
 }

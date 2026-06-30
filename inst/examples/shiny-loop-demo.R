@@ -25,7 +25,7 @@ pkgload::load_all(export_all = FALSE, quiet = TRUE)
 set.seed(123)
 
 taskr::shutdown_queue()
-taskr::init_queue(max_slots = 1)
+taskr::init_queue(max_slots = 3)
 
 demo_conditions <- c(
   "chain_stan_like",
