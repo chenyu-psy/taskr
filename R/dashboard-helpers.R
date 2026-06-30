@@ -450,6 +450,7 @@ dashboard_summary_metrics <- function(tab, max_slots = 1L) {
 
   slots <- max(1L, as.integer(max_slots %||% 1L))
   slot_ratio <- min(1, slots_used / slots)
+  slot_overloaded <- slots_used > slots
 
   list(
     total = n_total,
@@ -461,6 +462,7 @@ dashboard_summary_metrics <- function(tab, max_slots = 1L) {
     slots_used = slots_used,
     slots_total = slots,
     slot_ratio = slot_ratio,
+    slot_overloaded = slot_overloaded,
     completion_ratio = completion_ratio
   )
 }
