@@ -78,7 +78,26 @@ test_that("dashboard_summary_metrics returns slot and completion ratios", {
   expect_equal(summary$slots_used, 3)
   expect_equal(summary$slots_total, 4)
   expect_equal(summary$slot_ratio, 0.75)
+  expect_false(summary$slot_overloaded)
   expect_equal(summary$completion_ratio, 3 / 5)
+})
+
+test_that("dashboard_summary_metrics flags overloaded slot usage", {
+  dashboard_summary_metrics <- getFromNamespace("dashboard_summary_metrics", "taskr")
+
+  tab <- data.frame(
+    id = 1:2,
+    status = c("running", "running"),
+    slots = c(2L, 2L),
+    stringsAsFactors = FALSE
+  )
+
+  summary <- dashboard_summary_metrics(tab, max_slots = 2L)
+
+  expect_equal(summary$slots_used, 4)
+  expect_equal(summary$slots_total, 2)
+  expect_equal(summary$slot_ratio, 1)
+  expect_true(summary$slot_overloaded)
 })
 
 test_that("dashboard_summary_metrics falls back to running count when slots column is absent", {

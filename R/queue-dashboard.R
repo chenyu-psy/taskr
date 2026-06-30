@@ -11,15 +11,19 @@
 # - label: Optional label shown above the bar.
 # Returns:
 # - A `shiny::div` tag.
-progress_bar_tag <- function(ratio = 0, label = NULL) {
+progress_bar_tag <- function(ratio = 0, label = NULL, overloaded = FALSE) {
   pct <- max(0, min(1, as.numeric(ratio %||% 0))) * 100
+  fill_class <- paste(
+    "metric-progress-fill",
+    if (isTRUE(overloaded)) "metric-progress-fill-overloaded" else ""
+  )
 
   shiny::div(
     class = "metric-progress-wrap",
     if (!is.null(label)) shiny::div(class = "metric-progress-label", label),
     shiny::div(
       class = "metric-progress-track",
-      shiny::div(class = "metric-progress-fill", style = sprintf("width: %.1f%%;", pct))
+      shiny::div(class = fill_class, style = sprintf("width: %.1f%%;", pct))
     )
   )
 }
@@ -332,6 +336,7 @@ dashboard_css <- function() {
       ".metric-progress-label { font-size: 12px; margin-bottom: 4px; color: #3d4a58; }",
       ".metric-progress-track { width: 100%; height: 10px; background: #e6edf5; border-radius: 999px; overflow: hidden; }",
       ".metric-progress-fill { height: 100%; background: linear-gradient(90deg, #2d6cdf, #57a7ff); }",
+      ".metric-progress-fill-overloaded { background: linear-gradient(90deg, #c53030, #f56565); }",
       ".dashboard-column-title { font-size: 15px; font-weight: 700; margin-bottom: 8px; color: #22384d; }",
       ".dashboard-column-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }",
       ".dashboard-column-title { margin-bottom: 0; }",
@@ -1252,7 +1257,8 @@ queue_dashboard_app <- function(
         shiny::tagList(
           progress_bar_tag(
             ratio = summary$slot_ratio,
-            label = sprintf("Slot usage: %d / %d", summary$slots_used, summary$slots_total)
+            label = sprintf("Slot usage: %d / %d", summary$slots_used, summary$slots_total),
+            overloaded = summary$slot_overloaded
           ),
           progress_bar_tag(
             ratio = summary$completion_ratio,

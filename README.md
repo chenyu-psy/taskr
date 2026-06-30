@@ -69,6 +69,8 @@ shutdown_queue()
 Most workflows start with `init_queue(max_slots = ...)`, where `max_slots` is
 the session-level concurrency budget. A task can request one or more slots, and
 the queue starts pending work as capacity becomes available.
+Use `set_queue(max_slots = ...)` to change that budget later without resetting
+the queue.
 
 Choose the submission helper that matches how your work is written:
 

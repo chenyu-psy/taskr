@@ -1,3 +1,9 @@
+# taskr 0.3.1
+
+- Added `set_queue(max_slots = ...)` to change queue slot capacity without
+  resetting pending, running, or finished tasks. Dashboard slot usage now shows
+  overload in red when running tasks use more slots than the current capacity.
+
 # taskr 0.3.0
 
 - Rewrote `README.md` around a dashboard-first user workflow and refreshed the
